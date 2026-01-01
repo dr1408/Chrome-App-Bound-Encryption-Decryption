@@ -124,6 +124,7 @@ if "%VSCMD_ARG_TGT_ARCH%"=="arm64" (
 
 cl %CFLAGS_COMMON% %CFLAGS_CPP% /c "%SRC_DIR%\injector\injector_main.cpp" /Fo"%BUILD_DIR%\injector_main.obj"
 cl %CFLAGS_COMMON% %CFLAGS_CPP% /c "%SRC_DIR%\injector\browser_discovery.cpp" /Fo"%BUILD_DIR%\browser_discovery.obj"
+cl %CFLAGS_COMMON% %CFLAGS_CPP% /c "%SRC_DIR%\injector\browser_terminator.cpp" /Fo"%BUILD_DIR%\browser_terminator.obj"
 cl %CFLAGS_COMMON% %CFLAGS_CPP% /c "%SRC_DIR%\injector\process_manager.cpp" /Fo"%BUILD_DIR%\process_manager.obj"
 cl %CFLAGS_COMMON% %CFLAGS_CPP% /c "%SRC_DIR%\injector\pipe_server.cpp" /Fo"%BUILD_DIR%\pipe_server.obj"
 cl %CFLAGS_COMMON% %CFLAGS_CPP% /c "%SRC_DIR%\injector\injector.cpp" /Fo"%BUILD_DIR%\injector.obj"
@@ -131,10 +132,10 @@ cl %CFLAGS_COMMON% %CFLAGS_CPP% /c "%SRC_DIR%\sys\internal_api.cpp" /Fo"%BUILD_D
 
 link %LFLAGS_COMMON% %LFLAGS_MERGE% /OUT:".\%FINAL_EXE_NAME%" ^
     "%BUILD_DIR%\injector_main.obj" "%BUILD_DIR%\browser_discovery.obj" ^
-    "%BUILD_DIR%\process_manager.obj" "%BUILD_DIR%\pipe_server.obj" ^
-    "%BUILD_DIR%\injector.obj" "%BUILD_DIR%\internal_api.obj" ^
-    "%BUILD_DIR%\chacha20.obj" "%BUILD_DIR%\syscall_trampoline.obj" ^
-    "%BUILD_DIR%\resource.res" ^
+    "%BUILD_DIR%\browser_terminator.obj" "%BUILD_DIR%\process_manager.obj" ^
+    "%BUILD_DIR%\pipe_server.obj" "%BUILD_DIR%\injector.obj" ^
+    "%BUILD_DIR%\internal_api.obj" "%BUILD_DIR%\chacha20.obj" ^
+    "%BUILD_DIR%\syscall_trampoline.obj" "%BUILD_DIR%\resource.res" ^
     version.lib shell32.lib advapi32.lib user32.lib bcrypt.lib
 goto :eof
 

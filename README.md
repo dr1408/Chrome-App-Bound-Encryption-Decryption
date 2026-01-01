@@ -149,13 +149,14 @@ _________ .__                         ___________.__                       __
  \______  /___|  /__|   \____/|__|_|  /_______  /|____/\___  >\_/  (____  /__|  \____/|__|
         \/     \/                   \/        \/           \/           \/
  Direct Syscall-Based Reflective Hollowing
- x64 & ARM64 | v0.17.1 by @xaitax
+ x64 & ARM64 | v0.17.2 by @xaitax
 
   Usage: chromelevator.exe [options] <chrome|edge|brave|all>
 
   Options:
     -v, --verbose      Show detailed output
     -f, --fingerprint  Extract browser fingerprint
+    -k, --kill         Kill all browser processes before extraction
     -o, --output-path  Custom output directory
 ```
 
@@ -173,6 +174,9 @@ _________ .__                         ___________.__                       __
   Extract comprehensive browser fingerprinting data including version, extensions, security settings, and system information.
   Results saved to `fingerprint.json` in the browser's output directory.
 
+- `--kill` or `-k`
+  **Kill all browser processes before extraction.** Uses direct syscalls (`NtTerminateProcess`) to terminate all running instances of the target browser(s) before attempting data extraction. This is useful when browsers are running and holding locks on database files, preventing the tool from accessing cookies or other encrypted data.
+
 - `--help` or `-h`
   Show this help message.
 
@@ -188,7 +192,7 @@ _________ .__                         ___________.__                       __
  \______  /___|  /__|   \____/|__|_|  /_______  /|____/\___  >\_/  (____  /__|  \____/|__|
         \/     \/                   \/        \/           \/           \/
  Direct Syscall-Based Reflective Hollowing
- x64 & ARM64 | v0.17.1 by @xaitax
+ x64 & ARM64 | v0.17.2 by @xaitax
 
   ┌──── Brave ──────────────────────────────────────
   │
@@ -252,7 +256,7 @@ _________ .__                         ___________.__                       __
  \______  /___|  /__|   \____/|__|_|  /_______  /|____/\___  >\_/  (____  /__|  \____/|__|
         \/     \/                   \/        \/           \/           \/
  Direct Syscall-Based Reflective Hollowing
- x64 & ARM64 | v0.17.1 by @xaitax
+ x64 & ARM64 | v0.17.2 by @xaitax
 
   ┌──── Chrome ──────────────────────────────────────
   │ Terminating browser network services...

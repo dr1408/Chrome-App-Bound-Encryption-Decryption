@@ -2,6 +2,11 @@
 
 ## 🆕 Changelog
 
+### v0.17.2
+- **Browser Process Termination**: Added `-k/--kill` flag to terminate all running browser processes before extraction.
+  - Uses direct syscalls (`NtTerminateProcess`, `NtGetNextProcess`, `NtOpenProcess`) for process termination.
+  - Automatically terminates child processes to release file locks on SQLite databases.
+
 ### v0.17.1
 - **Google Auth Token Extraction**: Added support for extracting Google OAuth2 Refresh Tokens.
   - Extracts and decrypts tokens used for Chrome Sync and Google services.
