@@ -2,13 +2,17 @@
 
 import argparse
 import ctypes
+import json
+import logging
 import os
 import sys
+import time
+from datetime import datetime
 import comtypes
 import comtypes.typeinfo
 import comtypes.automation
 import winreg
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Any, Optional
 
 try:
@@ -191,7 +195,8 @@ def format_guid_for_cpp(guid_str_or_obj):
 
 class ComInterfaceAnalyzer:
     def __init__(self, executable_path=None, verbose=False, target_method_names=None,
-                 expected_decrypt_param_count=3, expected_encrypt_param_count=4):
+                 expected_decrypt_param_count=3, expected_encrypt_param_count=4,
+                 log_file=None):
         self.executable_path = executable_path
         self.args_verbose = verbose
         self.type_lib: Optional[comtypes.POINTER(
@@ -203,12 +208,37 @@ class ComInterfaceAnalyzer:
             "DecryptData", "EncryptData"]
         self.expected_param_counts = {
             "DecryptData": expected_decrypt_param_count, "EncryptData": expected_encrypt_param_count}
+        
+        # Statistics tracking
+        self.start_time = None
+        self.interfaces_scanned = 0
+        self.interfaces_abe_capable = 0
+        
+        # Setup file logging if requested
+        self.logger = None
+        if log_file:
+            self.logger = logging.getLogger('ComradeABE')
+            self.logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+            handler = logging.FileHandler(log_file, encoding='utf-8')
+            handler.setFormatter(logging.Formatter(
+                '%(asctime)s - %(levelname)s - %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            ))
+            self.logger.addHandler(handler)
 
     def _log(self, message: str, indent: int = 0, verbose_only: bool = False, status_emoji: Optional[str] = None):
         if verbose_only and not self.args_verbose:
             return
         prefix = f"{status_emoji} " if status_emoji else ""
-        print(f"{'  ' * indent}{prefix}{message}")
+        formatted_msg = f"{'  ' * indent}{prefix}{message}"
+        print(formatted_msg)
+        
+        # Also log to file if logger is set
+        if self.logger:
+            # Remove emoji for cleaner log file
+            clean_msg = message
+            level = logging.DEBUG if verbose_only else logging.INFO
+            self.logger.log(level, clean_msg)
 
     def load_type_library(self) -> bool:
         if not self.executable_path:
@@ -545,16 +575,23 @@ class ComInterfaceAnalyzer:
         self._log(
             f"{EMOJI_GEAR} Analyzing all TKIND_INTERFACE entries from TypeLib...", indent=1)
         self.results = []
+        self.interfaces_scanned = 0
+        self.interfaces_abe_capable = 0
 
         num_type_infos = 0
         try:
             num_type_infos = self.type_lib.GetTypeInfoCount()
+            self._log(f"{EMOJI_INFO} Found {num_type_infos} type definitions to scan", indent=1)
         except Exception as e_count:
             self._log(
                 f"{EMOJI_FAILURE} Error getting TypeInfo count: {e_count}", indent=2)
             return
 
         for i in range(num_type_infos):
+            # Progress indicator (every 10%)
+            if num_type_infos > 10 and i % max(1, num_type_infos // 10) == 0 and i > 0:
+                progress_pct = (i / num_type_infos) * 100
+                self._log(f"{EMOJI_SEARCH} Progress: {progress_pct:.0f}% ({i}/{num_type_infos} type definitions scanned)", indent=1)
             type_info_obj_main_iter = None
             attr_main_iter_ptr = None
             interface_name_for_log = f"TypeInfo index {i}"
@@ -574,6 +611,7 @@ class ComInterfaceAnalyzer:
                 if not attr_main_iter_ptr or attr_main_iter_ptr.typekind != comtypes.typeinfo.TKIND_INTERFACE:
                     continue
 
+                self.interfaces_scanned += 1
                 interface_iid_str = str(attr_main_iter_ptr.guid)
                 self._log(
                     f"Scanning Interface: '{interface_name_for_log}' (IID: {interface_iid_str})", indent=2, verbose_only=True)
@@ -614,6 +652,7 @@ class ComInterfaceAnalyzer:
                                         pass
 
                 if all(name in methods_found_in_chain for name in self.target_method_names):
+                    self.interfaces_abe_capable += 1
                     self._log(
                         f"{EMOJI_INFO} Found ABE-capable: '{interface_name_for_log}' (IID: {interface_iid_str})", indent=3)
                     self.results.append(AbeCandidate(
@@ -648,112 +687,9 @@ class ComInterfaceAnalyzer:
             self._log(
                 f"{EMOJI_INFO} No ABE-capable interfaces were found after scanning all TypeInfo entries.", indent=1)
 
-    def analyze_interfaces_directly(self):
-        if not self.type_lib:
-            self._log(f"{EMOJI_FAILURE} Type library not loaded. Cannot analyze interfaces.",
-                      status_emoji=EMOJI_FAILURE)
-            return
-
-        self._log(
-            f"{EMOJI_GEAR} Analyzing all TKIND_INTERFACE entries from TypeLib...", indent=1)
-        self.results = []
-
-        num_type_infos = 0
-        try:
-            num_type_infos = self.type_lib.GetTypeInfoCount()
-        except Exception as e_count:
-            self._log(
-                f"{EMOJI_FAILURE} Error getting TypeInfo count: {e_count}", indent=2)
-            return
-
-        for i in range(num_type_infos):
-            type_info = attr = None
-            interface_name_for_log = f"TypeInfo index {i}"
-            try:
-                type_info = self.type_lib.GetTypeInfo(i)
-                attr = type_info.GetTypeAttr()
-
-                try:
-                    interface_name_for_log, _, _, _ = type_info.GetDocumentation(
-                        -1)
-                except Exception:
-                    pass
-
-                if not attr or attr.typekind != comtypes.typeinfo.TKIND_INTERFACE:
-                    continue
-
-                interface_iid_str = str(attr.guid)
-                self._log(
-                    f"Scanning Interface: '{interface_name_for_log}' (IID: {interface_iid_str})", indent=2, verbose_only=True)
-
-                current_interface_chain = self.get_inheritance_chain(type_info)
-                methods_found_in_chain = {}
-
-                for iface_in_chain_info in current_interface_chain:
-                    for method_detail in iface_in_chain_info.methods_defined:
-                        method_name = method_detail.name
-                        if method_name in self.target_method_names and method_name not in methods_found_in_chain:
-                            func_desc_check = None
-                            try:
-                                func_desc_check = iface_in_chain_info.type_info_obj.GetFuncDesc(
-                                    method_detail.index_in_interface)
-                                if func_desc_check and \
-                                   func_desc_check.cParams == self.expected_param_counts.get(method_name, -1) and \
-                                   self.check_method_signature(method_name, func_desc_check, iface_in_chain_info.type_info_obj):
-                                    methods_found_in_chain[method_name] = AnalyzedMethod(
-                                        name=method_name, ovft=method_detail.ovft, memid=method_detail.memid,
-                                        defining_interface_name=iface_in_chain_info.name,
-                                        defining_interface_iid=iface_in_chain_info.iid
-                                    )
-                                    self._log(f"'{method_name}' matched signature in '{iface_in_chain_info.name}'.",
-                                              indent=4, verbose_only=True, status_emoji=EMOJI_LIGHTBULB)
-                            except comtypes.COMError as e_fd_check:
-                                self._log(
-                                    f"{EMOJI_WARNING} COMError checking method '{method_name}' in '{iface_in_chain_info.name}': {e_fd_check}", indent=5, verbose_only=True)
-                            finally:
-                                if func_desc_check and iface_in_chain_info.type_info_obj:
-                                    try:
-                                        iface_in_chain_info.type_info_obj.ReleaseFuncDesc(
-                                            func_desc_check)
-                                    except:
-                                        pass  # Best effort
-
-                if all(name in methods_found_in_chain for name in self.target_method_names):
-                    self._log(f"Interface '{interface_name_for_log}' (IID: {interface_iid_str}) IS ABE-capable.",
-                              indent=3, verbose_only=True, status_emoji=EMOJI_SUCCESS)
-                    self.results.append(AbeCandidate(
-                        clsid=self.discovered_clsid or "Unknown CLSID",
-                        interface_name=interface_name_for_log,
-                        interface_iid=interface_iid_str,
-                        methods=methods_found_in_chain,
-                        inheritance_chain_info=current_interface_chain
-                    ))
-                else:
-                    self._log(
-                        f"Interface '{interface_name_for_log}' did not meet all target method criteria.", indent=3, verbose_only=True)
-
-            except comtypes.COMError as e_com_loop:
-                self._log(
-                    f"{EMOJI_FAILURE} COMError processing {interface_name_for_log}: {e_com_loop}", indent=2)
-            except Exception as e_gen_loop:
-                self._log(
-                    f"{EMOJI_FAILURE} Generic error processing {interface_name_for_log}: {e_gen_loop}", indent=2)
-                import traceback
-                if self.args_verbose:
-                    traceback.print_exc()
-            finally:
-                if attr and type_info:
-                    try:
-                        type_info.ReleaseTypeAttr(attr)
-                    except Exception as e_release_loop_attr:
-                        self._log(
-                            f"{EMOJI_WARNING} Error releasing TYPEATTR for '{interface_name_for_log}': {e_release_loop_attr}", indent=3, verbose_only=True)
-
-        if not self.results:
-            self._log(
-                f"{EMOJI_INFO} No ABE-capable interfaces were found or added to results after scanning all TypeInfo entries.", indent=1)
 
     def analyze(self, scan_mode=False, browser_key_for_scan=None, user_provided_clsid=None):
+        self.start_time = time.time()
         comtypes.CoInitialize()
         try:
             if scan_mode and browser_key_for_scan:
@@ -785,6 +721,72 @@ class ComInterfaceAnalyzer:
             self.analyze_interfaces_directly()
         finally:
             comtypes.CoUninitialize()
+            
+    def export_to_json(self, output_file: str) -> bool:
+        """Export analysis results to JSON format."""
+        if not self.results:
+            self._log(f"{EMOJI_FAILURE} No results to export to JSON.", status_emoji=EMOJI_FAILURE)
+            return False
+        
+        try:
+            export_data = {
+                "metadata": {
+                    "tool": "COMrade ABE Analyzer",
+                    "version": "1.1.0",
+                    "timestamp": datetime.now().isoformat(),
+                    "analysis_duration_seconds": time.time() - self.start_time if self.start_time else 0,
+                    "browser": self.browser_key or "unknown",
+                    "executable_path": self.executable_path or "unknown"
+                },
+                "statistics": {
+                    "total_interfaces_scanned": self.interfaces_scanned,
+                    "abe_capable_interfaces_found": self.interfaces_abe_capable,
+                    "target_methods": self.target_method_names
+                },
+                "discovered_clsid": self.discovered_clsid or "Unknown",
+                "results": []
+            }
+            
+            for candidate in self.results:
+                result_entry = {
+                    "interface_name": candidate.interface_name,
+                    "interface_iid": candidate.interface_iid,
+                    "clsid": candidate.clsid,
+                    "methods": {},
+                    "inheritance_chain": []
+                }
+                
+                # Add methods
+                for method_name, method_detail in candidate.methods.items():
+                    result_entry["methods"][method_name] = {
+                        "name": method_detail.name,
+                        "vtable_offset": method_detail.ovft,
+                        "memid": method_detail.memid,
+                        "defining_interface": method_detail.defining_interface_name,
+                        "defining_interface_iid": method_detail.defining_interface_iid
+                    }
+                
+                # Add inheritance chain
+                for iface_info in candidate.inheritance_chain_info:
+                    chain_entry = {
+                        "name": iface_info.name,
+                        "iid": iface_info.iid,
+                        "base_interface": iface_info.base_interface_name,
+                        "methods_count": len(iface_info.methods_defined)
+                    }
+                    result_entry["inheritance_chain"].append(chain_entry)
+                
+                export_data["results"].append(result_entry)
+            
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False)
+            
+            self._log(f"{EMOJI_SUCCESS} JSON export saved to: {output_file}")
+            return True
+            
+        except Exception as e:
+            self._log(f"{EMOJI_FAILURE} Error exporting JSON: {e}", status_emoji=EMOJI_FAILURE)
+            return False
 
     def generate_cpp_stub_for_chain(self, chain_info_list: List[InterfaceInfo], main_abe_interface_iid: str) -> str:
         output_cpp = ""
@@ -914,6 +916,17 @@ class ComInterfaceAnalyzer:
         print(f"  Discovered CLSID  : {common_clsid_str}")
         if common_clsid_cpp != format_guid_for_cpp(None):
             print(f"      (C++ Style)   : {common_clsid_cpp}")
+        
+        # Show statistics
+        if self.start_time:
+            duration = time.time() - self.start_time
+            print(f"\n  {EMOJI_GEAR} Statistics:")
+            print(f"    Analysis Duration : {duration:.2f} seconds")
+            print(f"    Interfaces Scanned: {self.interfaces_scanned}")
+            print(f"    ABE-Capable Found : {self.interfaces_abe_capable}")
+            if self.interfaces_scanned > 0:
+                success_rate = (self.interfaces_abe_capable / self.interfaces_scanned) * 100
+                print(f"    Success Rate      : {success_rate:.1f}%")
 
         print(f"\n  Found {len(self.results)} ABE-Capable Interface(s):")
         chrome_known_good_iid = "{463ABECF-410D-407F-8AF5-0DF35A005CC8}".lower()
@@ -1088,6 +1101,16 @@ if __name__ == "__main__":
         help="Enable scan mode. In this mode, TARGET should be a browser key ('chrome', 'edge', 'brave').\n"
              "The script will attempt to find the service executable and CLSID from the registry."
     )
+    parser.add_argument(
+        "--output-json",
+        metavar="FILE_PATH",
+        help="Export analysis results to JSON format for programmatic consumption."
+    )
+    parser.add_argument(
+        "--log-file",
+        metavar="FILE_PATH",
+        help="Write detailed logs to the specified file with timestamps."
+    )
     
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
@@ -1105,7 +1128,8 @@ if __name__ == "__main__":
         verbose=args.verbose,
         target_method_names=[name.strip() for name in args.target_method_names.split(',')],
         expected_decrypt_param_count=args.decrypt_params,
-        expected_encrypt_param_count=args.encrypt_params
+        expected_encrypt_param_count=args.encrypt_params,
+        log_file=args.log_file
     )
 
     if args.scan:
@@ -1118,12 +1142,14 @@ if __name__ == "__main__":
             parser.error(f"Executable path not found: {args.executable_path_or_browser_key}")
         analyzer.executable_path = args.executable_path_or_browser_key
         if args.known_clsid:
-            analyzer.discovered_clsid = args.known_clsid 
-            analyzer.browser_key = "manual_path_input" 
+            analyzer.discovered_clsid = args.known_clsid
+            analyzer.browser_key = "manual_path_input"
         analyzer.analyze(scan_mode=False, user_provided_clsid=args.known_clsid)
     
-    if analyzer.results or args.verbose:
-        print(f"{EMOJI_INFO} Debug: analyzer.results has {len(analyzer.results)} items before printing.")
-    
     analyzer.print_results(output_cpp_stub_file=args.output_cpp_stub)
+    
+    # Export to JSON if requested
+    if args.output_json and analyzer.results:
+        analyzer.export_to_json(args.output_json)
+    
     print(f"\n{EMOJI_SUCCESS} Analysis complete.")
