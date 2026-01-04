@@ -45,10 +45,6 @@ void ProcessBrowser(const BrowserInfo& browser, bool verbose, bool fingerprint, 
                 console.Debug("  [+] No running processes found");
             }
             Sleep(300);
-        } else {
-            console.Debug("Terminating browser network services...");
-            ProcessManager::KillNetworkServices(browser.exeName);
-            console.Debug("  [+] Network services terminated");
         }
 
         console.Debug("Creating suspended process: " + Core::ToUtf8(browser.fullPath));

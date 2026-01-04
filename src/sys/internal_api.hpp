@@ -22,8 +22,20 @@ using NTSTATUS = LONG;
 #define STATUS_BUFFER_OVERFLOW ((NTSTATUS)0x80000005L)
 #endif
 
+#ifndef STATUS_INFO_LENGTH_MISMATCH
+#define STATUS_INFO_LENGTH_MISMATCH ((NTSTATUS)0xC0000004L)
+#endif
+
+#ifndef STATUS_PENDING
+#define STATUS_PENDING ((NTSTATUS)0x00000103L)
+#endif
+
 #ifndef OBJ_CASE_INSENSITIVE
 #define OBJ_CASE_INSENSITIVE 0x00000040L
+#endif
+
+#ifndef NT_SUCCESS
+#define NT_SUCCESS(Status) (((NTSTATUS)(Status)) >= 0)
 #endif
 
 // NT Structures required for syscalls
@@ -121,6 +133,78 @@ enum KEY_INFORMATION_CLASS
     KeyBasicInformation = 0
 };
 
+enum SYSTEM_INFORMATION_CLASS
+{
+    SystemBasicInformation = 0,
+    SystemProcessInformation = 5,
+    SystemHandleInformation = 16,
+    SystemExtendedHandleInformation = 64
+};
+
+enum OBJECT_INFORMATION_CLASS
+{
+    ObjectBasicInformation = 0,
+    ObjectNameInformation = 1,
+    ObjectTypeInformation = 2
+};
+
+struct SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX
+{
+    PVOID Object;
+    ULONG_PTR UniqueProcessId;
+    ULONG_PTR HandleValue;
+    ULONG GrantedAccess;
+    USHORT CreatorBackTraceIndex;
+    USHORT ObjectTypeIndex;
+    ULONG HandleAttributes;
+    ULONG Reserved;
+};
+
+struct SYSTEM_HANDLE_INFORMATION_EX
+{
+    ULONG_PTR NumberOfHandles;
+    ULONG_PTR Reserved;
+    SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX Handles[1];
+};
+
+struct OBJECT_NAME_INFORMATION
+{
+    UNICODE_STRING_SYSCALLS Name;
+    // Variable length name buffer follows
+};
+
+struct IO_STATUS_BLOCK
+{
+    union {
+        NTSTATUS Status;
+        PVOID Pointer;
+    };
+    ULONG_PTR Information;
+};
+using PIO_STATUS_BLOCK = IO_STATUS_BLOCK*;
+
+enum FILE_INFORMATION_CLASS
+{
+    FileBasicInformation = 4,
+    FileStandardInformation = 5,
+    FilePositionInformation = 14,
+    FileEndOfFileInformation = 20
+};
+
+struct FILE_STANDARD_INFORMATION
+{
+    LARGE_INTEGER AllocationSize;
+    LARGE_INTEGER EndOfFile;
+    ULONG NumberOfLinks;
+    BOOLEAN DeletePending;
+    BOOLEAN Directory;
+};
+
+struct FILE_POSITION_INFORMATION
+{
+    LARGE_INTEGER CurrentByteOffset;
+};
+
 inline void InitializeObjectAttributes(POBJECT_ATTRIBUTES p, PUNICODE_STRING_SYSCALLS n, ULONG a, HANDLE r, PVOID s)
 {
     p->Length = sizeof(OBJECT_ATTRIBUTES);
@@ -161,6 +245,12 @@ struct SYSCALL_STUBS
     SYSCALL_ENTRY NtOpenKey;
     SYSCALL_ENTRY NtQueryValueKey;
     SYSCALL_ENTRY NtEnumerateKey;
+    SYSCALL_ENTRY NtQuerySystemInformation;
+    SYSCALL_ENTRY NtDuplicateObject;
+    SYSCALL_ENTRY NtQueryObject;
+    SYSCALL_ENTRY NtReadFile;
+    SYSCALL_ENTRY NtQueryInformationFile;
+    SYSCALL_ENTRY NtSetInformationFile;
 };
 
 extern "C"
@@ -188,6 +278,12 @@ extern "C"
     NTSTATUS NtOpenKey_syscall(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES);
     NTSTATUS NtQueryValueKey_syscall(HANDLE, PUNICODE_STRING_SYSCALLS, KEY_VALUE_INFORMATION_CLASS, PVOID, ULONG, PULONG);
     NTSTATUS NtEnumerateKey_syscall(HANDLE, ULONG, KEY_INFORMATION_CLASS, PVOID, ULONG, PULONG);
+    NTSTATUS NtQuerySystemInformation_syscall(SYSTEM_INFORMATION_CLASS, PVOID, ULONG, PULONG);
+    NTSTATUS NtDuplicateObject_syscall(HANDLE, HANDLE, HANDLE, PHANDLE, ACCESS_MASK, ULONG, ULONG);
+    NTSTATUS NtQueryObject_syscall(HANDLE, OBJECT_INFORMATION_CLASS, PVOID, ULONG, PULONG);
+    NTSTATUS NtReadFile_syscall(HANDLE, HANDLE, PVOID, PVOID, PIO_STATUS_BLOCK, PVOID, ULONG, PLARGE_INTEGER, PULONG);
+    NTSTATUS NtQueryInformationFile_syscall(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, FILE_INFORMATION_CLASS);
+    NTSTATUS NtSetInformationFile_syscall(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, FILE_INFORMATION_CLASS);
 }
 
 namespace Sys {

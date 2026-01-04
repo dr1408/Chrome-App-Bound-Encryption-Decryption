@@ -19,9 +19,6 @@ namespace Injector {
         HANDLE GetThreadHandle() const { return m_hThread.get(); }
         DWORD GetPid() const { return m_pid; }
 
-        // Kill existing network services to free file locks
-        static void KillNetworkServices(const std::wstring& processName);
-
     private:
         void CheckArchitecture();
 

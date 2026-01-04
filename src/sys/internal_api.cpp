@@ -80,6 +80,13 @@ namespace Sys {
         constexpr uint32_t H_ZwOpenKey                 = djb2_hash("ZwOpenKey");
         constexpr uint32_t H_ZwQueryValueKey           = djb2_hash("ZwQueryValueKey");
         constexpr uint32_t H_ZwEnumerateKey            = djb2_hash("ZwEnumerateKey");
+        constexpr uint32_t H_ZwQuerySyste              = djb2_hash("ZwQuerySyste");
+        constexpr uint32_t H_ZwQuerySystemInformation  = djb2_hash("ZwQuerySystemInformation");
+        constexpr uint32_t H_ZwDuplicateObject         = djb2_hash("ZwDuplicateObject");
+        constexpr uint32_t H_ZwQueryObject             = djb2_hash("ZwQueryObject");
+        constexpr uint32_t H_ZwReadFile                = djb2_hash("ZwReadFile");
+        constexpr uint32_t H_ZwQueryInformationFile    = djb2_hash("ZwQueryInformationFile");
+        constexpr uint32_t H_ZwSetInformationFile      = djb2_hash("ZwSetInformationFile");
     }
 
     bool InitApi(bool) {
@@ -137,7 +144,13 @@ namespace Sys {
             {H_ZwClose,                   &g_syscall_stubs.NtClose, 1},
             {H_ZwOpenKey,                 &g_syscall_stubs.NtOpenKey, 3},
             {H_ZwQueryValueKey,           &g_syscall_stubs.NtQueryValueKey, 6},
-            {H_ZwEnumerateKey,            &g_syscall_stubs.NtEnumerateKey, 6}
+            {H_ZwEnumerateKey,            &g_syscall_stubs.NtEnumerateKey, 6},
+            {H_ZwQuerySystemInformation,  &g_syscall_stubs.NtQuerySystemInformation, 4},
+            {H_ZwDuplicateObject,         &g_syscall_stubs.NtDuplicateObject, 7},
+            {H_ZwQueryObject,             &g_syscall_stubs.NtQueryObject, 5},
+            {H_ZwReadFile,                &g_syscall_stubs.NtReadFile, 9},
+            {H_ZwQueryInformationFile,    &g_syscall_stubs.NtQueryInformationFile, 5},
+            {H_ZwSetInformationFile,      &g_syscall_stubs.NtSetInformationFile, 5}
         };
 
         // Match by hash and resolve SSN from sorted position
@@ -226,5 +239,23 @@ extern "C" {
     }
     NTSTATUS NtEnumerateKey_syscall(HANDLE KeyHandle, ULONG Index, KEY_INFORMATION_CLASS KeyInformationClass, PVOID KeyInformation, ULONG Length, PULONG ResultLength) {
         return SyscallTrampoline(&g_syscall_stubs.NtEnumerateKey, KeyHandle, Index, KeyInformationClass, KeyInformation, Length, ResultLength);
+    }
+    NTSTATUS NtQuerySystemInformation_syscall(SYSTEM_INFORMATION_CLASS SystemInformationClass, PVOID SystemInformation, ULONG SystemInformationLength, PULONG ReturnLength) {
+        return SyscallTrampoline(&g_syscall_stubs.NtQuerySystemInformation, SystemInformationClass, SystemInformation, SystemInformationLength, ReturnLength);
+    }
+    NTSTATUS NtDuplicateObject_syscall(HANDLE SourceProcessHandle, HANDLE SourceHandle, HANDLE TargetProcessHandle, PHANDLE TargetHandle, ACCESS_MASK DesiredAccess, ULONG HandleAttributes, ULONG Options) {
+        return SyscallTrampoline(&g_syscall_stubs.NtDuplicateObject, SourceProcessHandle, SourceHandle, TargetProcessHandle, TargetHandle, DesiredAccess, HandleAttributes, Options);
+    }
+    NTSTATUS NtQueryObject_syscall(HANDLE Handle, OBJECT_INFORMATION_CLASS ObjectInformationClass, PVOID ObjectInformation, ULONG ObjectInformationLength, PULONG ReturnLength) {
+        return SyscallTrampoline(&g_syscall_stubs.NtQueryObject, Handle, ObjectInformationClass, ObjectInformation, ObjectInformationLength, ReturnLength);
+    }
+    NTSTATUS NtReadFile_syscall(HANDLE FileHandle, HANDLE Event, PVOID ApcRoutine, PVOID ApcContext, PIO_STATUS_BLOCK IoStatusBlock, PVOID Buffer, ULONG Length, PLARGE_INTEGER ByteOffset, PULONG Key) {
+        return SyscallTrampoline(&g_syscall_stubs.NtReadFile, FileHandle, Event, ApcRoutine, ApcContext, IoStatusBlock, Buffer, Length, ByteOffset, Key);
+    }
+    NTSTATUS NtQueryInformationFile_syscall(HANDLE FileHandle, PIO_STATUS_BLOCK IoStatusBlock, PVOID FileInformation, ULONG Length, FILE_INFORMATION_CLASS FileInformationClass) {
+        return SyscallTrampoline(&g_syscall_stubs.NtQueryInformationFile, FileHandle, IoStatusBlock, FileInformation, Length, FileInformationClass);
+    }
+    NTSTATUS NtSetInformationFile_syscall(HANDLE FileHandle, PIO_STATUS_BLOCK IoStatusBlock, PVOID FileInformation, ULONG Length, FILE_INFORMATION_CLASS FileInformationClass) {
+        return SyscallTrampoline(&g_syscall_stubs.NtSetInformationFile, FileHandle, IoStatusBlock, FileInformation, Length, FileInformationClass);
     }
 }

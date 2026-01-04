@@ -149,7 +149,7 @@ _________ .__                         ___________.__                       __
  \______  /___|  /__|   \____/|__|_|  /_______  /|____/\___  >\_/  (____  /__|  \____/|__|
         \/     \/                   \/        \/           \/           \/
  Direct Syscall-Based Reflective Hollowing
- x64 & ARM64 | v0.17.2 by @xaitax
+ x64 & ARM64 | v0.17.3 by @xaitax
 
   Usage: chromelevator.exe [options] <chrome|edge|brave|all>
 
@@ -192,7 +192,7 @@ _________ .__                         ___________.__                       __
  \______  /___|  /__|   \____/|__|_|  /_______  /|____/\___  >\_/  (____  /__|  \____/|__|
         \/     \/                   \/        \/           \/           \/
  Direct Syscall-Based Reflective Hollowing
- x64 & ARM64 | v0.17.2 by @xaitax
+ x64 & ARM64 | v0.17.3 by @xaitax
 
   ┌──── Brave ──────────────────────────────────────
   │
@@ -256,11 +256,9 @@ _________ .__                         ___________.__                       __
  \______  /___|  /__|   \____/|__|_|  /_______  /|____/\___  >\_/  (____  /__|  \____/|__|
         \/     \/                   \/        \/           \/           \/
  Direct Syscall-Based Reflective Hollowing
- x64 & ARM64 | v0.17.2 by @xaitax
+ x64 & ARM64 | v0.17.3 by @xaitax
 
   ┌──── Chrome ──────────────────────────────────────
-  │ Terminating browser network services...
-  │   [+] Network services terminated
   │ Creating suspended process: C:\Program Files\Google\Chrome\Application\chrome.exe
   │   [+] Process created (PID: 13020)
   │   [+] IPC pipe established: \\.\pipe\chrome.sync.26370.18285.8B20

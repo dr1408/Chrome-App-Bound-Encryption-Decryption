@@ -2,6 +2,14 @@
 
 ## 🆕 Changelog
 
+### v0.17.3
+
+* **Locked SQLite Access via Handle Duplication**: Added syscall-based handle enumeration and duplication to access browser SQLite databases without terminating processes.
+  * Duplicates open database file handles into the payload process and extracts from a temporary copy.
+  * Prevents failures caused by active file locks on especially `Cookies`.
+* **Extended Syscall Coverage**: Added direct syscall support for handle and file operations (`NtDuplicateObject`, `NtQuerySystemInformation`, `NtQueryObject`, `NtReadFile`, `NtQueryInformationFile`, `NtSetInformationFile`).
+* **Extraction Flow Change**: Removed browser network-service termination logic in favor of non-intrusive live-process extraction.
+
 ### v0.17.2
 - **Browser Process Termination**: Added `-k/--kill` flag to terminate all running browser processes before extraction.
   - Uses direct syscalls (`NtTerminateProcess`, `NtGetNextProcess`, `NtOpenProcess`) for process termination.

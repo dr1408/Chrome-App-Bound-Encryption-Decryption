@@ -89,11 +89,22 @@ cl %CFLAGS_COMMON% %CFLAGS_CPP% /c "%SRC_DIR%\payload\pipe_client.cpp" /Fo"%BUIL
 cl %CFLAGS_COMMON% %CFLAGS_CPP% /I"%LIBS_DIR%\sqlite" /c "%SRC_DIR%\payload\data_extractor.cpp" /Fo"%BUILD_DIR%\data_extractor.obj"
 cl %CFLAGS_COMMON% %CFLAGS_CPP% /c "%SRC_DIR%\crypto\aes_gcm.cpp" /Fo"%BUILD_DIR%\aes_gcm.obj"
 cl %CFLAGS_COMMON% %CFLAGS_CPP% /c "%SRC_DIR%\crypto\chacha20.cpp" /Fo"%BUILD_DIR%\chacha20.obj"
+cl %CFLAGS_COMMON% %CFLAGS_CPP% /c "%SRC_DIR%\payload\handle_duplicator.cpp" /Fo"%BUILD_DIR%\handle_duplicator.obj"
+cl %CFLAGS_COMMON% %CFLAGS_CPP% /c "%SRC_DIR%\sys\internal_api.cpp" /Fo"%BUILD_DIR%\internal_api_payload.obj"
+
+:: Compile syscall trampoline for payload DLL
+if "%VSCMD_ARG_TGT_ARCH%"=="arm64" (
+    armasm64.exe -nologo "%SRC_DIR%\sys\syscall_trampoline_arm64.asm" -o "%BUILD_DIR%\syscall_trampoline_payload.obj"
+) else (
+    ml64.exe /nologo /c /Fo"%BUILD_DIR%\syscall_trampoline_payload.obj" "%SRC_DIR%\sys\syscall_trampoline_x64.asm"
+)
 
 link %LFLAGS_COMMON% %LFLAGS_MERGE% /DLL /OUT:"%BUILD_DIR%\%PAYLOAD_DLL_NAME%" ^
     "%BUILD_DIR%\payload_main.obj" "%BUILD_DIR%\bootstrap.obj" "%BUILD_DIR%\elevator.obj" ^
     "%BUILD_DIR%\pipe_client.obj" "%BUILD_DIR%\data_extractor.obj" "%BUILD_DIR%\aes_gcm.obj" ^
-    "%BUILD_DIR%\chacha20.obj" "%BUILD_DIR%\sqlite3.lib" ^
+    "%BUILD_DIR%\chacha20.obj" "%BUILD_DIR%\handle_duplicator.obj" ^
+    "%BUILD_DIR%\internal_api_payload.obj" "%BUILD_DIR%\syscall_trampoline_payload.obj" ^
+    "%BUILD_DIR%\sqlite3.lib" ^
     bcrypt.lib ole32.lib oleaut32.lib shell32.lib version.lib comsuppw.lib crypt32.lib advapi32.lib kernel32.lib user32.lib libvcruntime.lib libucrt.lib
 goto :eof
 

