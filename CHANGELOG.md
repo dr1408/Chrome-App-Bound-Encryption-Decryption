@@ -2,6 +2,15 @@
 
 ## 🆕 Changelog
 
+### v0.17.4
+
+* **Brave Cookie Extraction**: Attempt at fixing cookie extraction returning 0 results for Brave browser.
+  * Chrome cookies have a 32-byte metadata header after decryption; Brave may not sometimes. The extraction now handles both formats.
+* **Cookie JSON Output**: Added `is_secure` and `is_httponly` boolean fields to cookie output.
+* **Account-Synced Password Extraction**: Added support for extracting passwords from `Login Data For Account` database.
+  * These are passwords synced via browser account (separate from locally-stored passwords).
+  * Outputs to `passwords_account.json` in each profile directory.
+
 ### v0.17.3
 
 * **Locked SQLite Access via Handle Duplication**: Added syscall-based handle enumeration and duplication to access browser SQLite databases without terminating processes.

