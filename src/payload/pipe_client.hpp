@@ -23,6 +23,7 @@ namespace Payload {
             bool verbose;
             bool fingerprint;
             std::string outputPath;
+            std::string browserType;
         };
         Config ReadConfig();
 

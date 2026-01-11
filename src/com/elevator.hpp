@@ -7,6 +7,7 @@
 #include <wrl/client.h>
 #include <string>
 #include <vector>
+#include <optional>
 
 namespace Com {
 
@@ -50,7 +51,12 @@ namespace Com {
         Elevator();
         ~Elevator();
 
-        std::vector<uint8_t> DecryptKey(const std::vector<uint8_t>& encryptedKey, const CLSID& clsid, const IID& iid, bool isEdge);
+        std::vector<uint8_t> DecryptKey(
+            const std::vector<uint8_t>& encryptedKey,
+            const CLSID& clsid,
+            const IID& iid,
+            const std::optional<IID>& iid_v2,
+            bool isEdge);
 
     private:
         bool m_initialized;

@@ -51,14 +51,29 @@ namespace Core {
         }
 
         // Browser section header with box drawing
-        void BrowserHeader(const std::string& name) const {
+        void BrowserHeader(const std::string& name, const std::string& version = "") const {
             std::cout << std::endl;
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
             std::cout << "  \xDA\xC4\xC4\xC4\xC4 ";
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
             std::cout << name;
+
+            size_t contentLen = name.length();
+            if (!version.empty()) {
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << " (";
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+                std::cout << version;
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << ")";
+                contentLen += 3 + version.length();
+            }
+
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-            std::cout << " \xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4" << std::endl;
+            const size_t totalWidth = 50;
+            const size_t prefixLen = 7;  // "  ┌──── "
+            size_t dashCount = (totalWidth > prefixLen + contentLen + 1) ? (totalWidth - prefixLen - contentLen - 1) : 4;
+            std::cout << " " << std::string(dashCount, '\xC4') << std::endl;
             SetConsoleTextAttribute(m_hConsole, m_origAttrs);
         }
 

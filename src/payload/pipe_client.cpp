@@ -52,6 +52,11 @@ namespace Payload {
             config.outputPath = buffer;
         }
 
+        if (ReadFile(m_hPipe, buffer, sizeof(buffer) - 1, &read, nullptr)) {
+            buffer[read] = '\0';
+            config.browserType = buffer;
+        }
+
         return config;
     }
 

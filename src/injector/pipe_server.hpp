@@ -33,8 +33,9 @@ namespace Injector {
     private:
         void Write(const std::string& msg);
         std::wstring GenerateName(const std::wstring& browserType);
-        
+
         std::wstring m_pipeName;
+        std::wstring m_browserType;
         Core::HandlePtr m_hPipe;
         ExtractionStats m_stats;
     };

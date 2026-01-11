@@ -2,6 +2,23 @@
 
 ## 🆕 Changelog
 
+### v0.18.0
+
+* **IElevator2 Interface Support**: Added forward-compatible support for Chrome's new `IElevator2` COM interface ([chromium/chromium@4962049](https://github.com/chromium/chromium/commit/49620496b8f0b7c0c63e2666a82e01180df3f4c3)).
+  * Chrome 144+ introduces `IElevator2` as a replacement for the legacy `IElevator` interface used in App-Bound Encryption.
+  * ChromElevator now attempts `IElevator2` first (when available), with automatic fallback to `IElevator` for older Chrome versions.
+  * This ensures continued operation across Chrome 143 (legacy), Chrome 144+ (transition period), and future versions (when `IElevator` is removed).
+  * New Chrome IElevator2 IID: `{1BF5208B-295F-4992-B5F4-3A9BB6494838}`
+  * Brave Browser support is prepared with placeholder for their upcoming `IElevator2` adoption.
+  * Edge remains unchanged (uses different interface chain).
+
+* **Chrome Beta Channel Support**: Added Chrome Beta as a separate browser target.
+  * Use `--target chrome-beta` or include in `all` scan.
+  * Separate CLSID/IID configuration for Chrome Beta's elevation service.
+  * IElevator2 support included for Chrome Beta 144+.
+
+* **Improved Browser Discovery**: Enhanced syscall-based registry lookups with fallback paths.
+
 ### v0.17.4
 
 * **Brave Cookie Extraction**: Attempt at fixing cookie extraction returning 0 results for Brave browser.

