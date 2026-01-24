@@ -63,12 +63,12 @@ This tool's effectiveness is rooted in a combination of modern, evasion-focused 
 
 | Browser                 | Tested Version (x64 & ARM64) |
 | ----------------------- | ---------------------------- |
-| **Google Chrome**       | 143.0.7499.193               |
-| **Google Chrome Beta**  | 144.0.7559.59                |
-| **Brave**               | 1.85.120 (143.0.7499.192)    |
-| **Microsoft Edge**      | 144.0.3719.67                |
+| **Google Chrome**       | 144.0.7559.97                |
+| **Google Chrome Beta**  | 145.0.7632.18                |
+| **Brave**               | 1.86.142 (144.0.7559.97)     |
+| **Microsoft Edge**      | 144.0.3719.92                |
 
-> **Note:** Chrome 144 introduces the new `IElevator2` COM interface. This tool automatically uses `IElevator2` when available and falls back to `IElevator` for Chrome 143 and earlier.
+> **Note:** Chrome/Brave/Edge 144+ use the new `IElevator2` COM interface. This tool automatically uses `IElevator2` when available and falls back to `IElevator` for older versions.
 
 ## 🔍 Feature Support Matrix
 
@@ -152,7 +152,7 @@ _________ .__                         ___________.__                       __
  \______  /___|  /__|   \____/|__|_|  /_______  /|____/\___  >\_/  (____  /__|  \____/|__|
         \/     \/                   \/        \/           \/           \/
  Direct Syscall-Based Reflective Hollowing
- x64 & ARM64 | v0.18.0 by @xaitax
+ x64 & ARM64 | v0.18.1 by @xaitax
 
   Usage: chromelevator.exe [options] <chrome|chrome-beta|edge|brave|all>
 
@@ -195,7 +195,7 @@ _________ .__                         ___________.__                       __
  \______  /___|  /__|   \____/|__|_|  /_______  /|____/\___  >\_/  (____  /__|  \____/|__|
         \/     \/                   \/        \/           \/           \/
  Direct Syscall-Based Reflective Hollowing
- x64 & ARM64 | v0.18.0 by @xaitax
+ x64 & ARM64 | v0.18.1 by @xaitax
 
   ┌──── Brave (143.1.85.120) ──────────────────────
   │
@@ -270,7 +270,7 @@ _________ .__                         ___________.__                       __
  \______  /___|  /__|   \____/|__|_|  /_______  /|____/\___  >\_/  (____  /__|  \____/|__|
         \/     \/                   \/        \/           \/           \/
  Direct Syscall-Based Reflective Hollowing
- x64 & ARM64 | v0.18.0 by @xaitax
+ x64 & ARM64 | v0.18.1 by @xaitax
 
   ┌──── Chrome (143.0.7499.193) ───────────────────
   │ Creating suspended process: C:\Program Files\Google\Chrome\Application\chrome.exe

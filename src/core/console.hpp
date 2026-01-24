@@ -19,6 +19,7 @@ namespace Core {
             CONSOLE_SCREEN_BUFFER_INFO csbi;
             GetConsoleScreenBufferInfo(m_hConsole, &csbi);
             m_origAttrs = csbi.wAttributes;
+            SetConsoleOutputCP(CP_UTF8);
         }
 
         ~Console() {
@@ -43,7 +44,7 @@ namespace Core {
         void Debug(const std::string& msg) const {
             if (m_verbose) {
                 SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-                std::cout << "  \xB3 ";
+                std::cout << "  │ ";
                 SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
                 std::cout << msg << std::endl;
                 SetConsoleTextAttribute(m_hConsole, m_origAttrs);
@@ -54,7 +55,7 @@ namespace Core {
         void BrowserHeader(const std::string& name, const std::string& version = "") const {
             std::cout << std::endl;
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-            std::cout << "  \xDA\xC4\xC4\xC4\xC4 ";
+            std::cout << "  ┌──── ";
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
             std::cout << name;
 
@@ -73,19 +74,44 @@ namespace Core {
             const size_t totalWidth = 50;
             const size_t prefixLen = 7;  // "  ┌──── "
             size_t dashCount = (totalWidth > prefixLen + contentLen + 1) ? (totalWidth - prefixLen - contentLen - 1) : 4;
-            std::cout << " " << std::string(dashCount, '\xC4') << std::endl;
+            std::cout << " ";
+            for (size_t i = 0; i < dashCount; ++i) std::cout << "─";
+            std::cout << std::endl;
             SetConsoleTextAttribute(m_hConsole, m_origAttrs);
         }
 
-        // AES Key display
+        // No ABE warning (within browser box)
+        void NoAbeWarning(const std::string& msg) const {
+            SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+            std::cout << "  │ ";
+            SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+            std::cout << msg << std::endl;
+            SetConsoleTextAttribute(m_hConsole, m_origAttrs);
+        }
+
+        // ABE Key display
         void KeyDecrypted(const std::string& keyHex) const {
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-            std::cout << "  \xB3" << std::endl;
-            std::cout << "  \xB3 ";
+            std::cout << "  │" << std::endl;
+            std::cout << "  │ ";
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-            std::cout << "Decryption Key" << std::endl;
+            std::cout << "App-Bound Encryption Key" << std::endl;
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-            std::cout << "  \xB3 ";
+            std::cout << "  │ ";
+            SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+            std::cout << keyHex << std::endl;
+            SetConsoleTextAttribute(m_hConsole, m_origAttrs);
+        }
+
+        // Copilot ABE Key display (Edge only)
+        void AsterKeyDecrypted(const std::string& keyHex) const {
+            SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+            std::cout << "  │" << std::endl;
+            std::cout << "  │ ";
+            SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+            std::cout << "Copilot App-Bound Encryption Key" << std::endl;
+            SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+            std::cout << "  │ ";
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
             std::cout << keyHex << std::endl;
             SetConsoleTextAttribute(m_hConsole, m_origAttrs);
@@ -94,8 +120,8 @@ namespace Core {
         // Profile section header
         void ProfileHeader(const std::string& name) const {
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-            std::cout << "  \xB3" << std::endl;
-            std::cout << "  \xC3\xC4\xC4 ";
+            std::cout << "  │" << std::endl;
+            std::cout << "  ├── ";
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
             std::cout << name << std::endl;
             SetConsoleTextAttribute(m_hConsole, m_origAttrs);
@@ -105,7 +131,7 @@ namespace Core {
         void DataRow(const std::string& key, const std::string& value) const {
             if (m_verbose) {
                 SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-                std::cout << "  \xB3   ";
+                std::cout << "  │   ";
                 std::cout << std::left << std::setw(12) << key;
                 SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
                 std::cout << value << std::endl;
@@ -116,7 +142,7 @@ namespace Core {
         // Extraction result (always shown)
         void ExtractionResult(const std::string& type, int count, int total = -1) const {
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-            std::cout << "  \xB3   ";
+            std::cout << "  │   ";
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
             std::cout << std::left << std::setw(12) << type;
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
@@ -132,8 +158,8 @@ namespace Core {
         // Summary line
         void Summary(int cookies, int passwords, int cards, int ibans, int tokens, int profiles, const std::string& outputPath) const {
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-            std::cout << "  \xB3" << std::endl;
-            std::cout << "  \xC0\xC4\xC4 ";
+            std::cout << "  │" << std::endl;
+            std::cout << "  └── ";
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
             
             std::vector<std::string> parts;

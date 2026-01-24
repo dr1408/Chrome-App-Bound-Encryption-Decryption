@@ -98,6 +98,13 @@ namespace Injector {
                 else if (msg.rfind("KEY:", 0) == 0) {
                     console.KeyDecrypted(msg.substr(4));
                 }
+                else if (msg.rfind("NO_ABE:", 0) == 0) {
+                    console.NoAbeWarning(msg.substr(7));
+                    m_stats.noAbe = true;
+                }
+                else if (msg.rfind("ASTER_KEY:", 0) == 0) {
+                    console.AsterKeyDecrypted(msg.substr(10));
+                }
                 else if (msg.rfind("COOKIES:", 0) == 0) {
                     size_t sep = msg.find(':', 8);
                     if (sep != std::string::npos) {

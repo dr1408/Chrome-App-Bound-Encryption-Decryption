@@ -2,6 +2,23 @@
 
 ## 🆕 Changelog
 
+### v0.18.1
+
+* **Edge Copilot/Aster Key Extraction**: Added extraction and display of Edge's secondary App-Bound Encryption key (`aster_app_bound_encrypted_key`).
+  * This key is used by Edge for encrypting imported passwords and Copilot-related data when server-side feature flags are enabled.
+  * Extracted via `IElevator` interface and displayed as `ASTER_KEY:` in IPC output alongside the primary key.
+
+* **Brave IElevator2 Support**: Brave now uses Chrome's `IElevator2Chrome` interface for forward compatibility.
+  * Brave's elevation service exposes Chrome's `IElevator2Chrome` IID: `{1BF5208B-295F-4992-B5F4-3A9BB6494838}`
+  * Same vtable layout as Chrome (DecryptData at offset 40).
+
+* **Edge IElevator2 Support**: Added Microsoft Edge's `IElevator2` interface for forward compatibility (Edge 144+).
+  * New IID: `{8F7B6792-784D-4047-845D-1782EFBEF205}`
+  * Edge now follows the same IElevator2 → IElevator fallback pattern as Chrome/Brave.
+  * Note: Edge's interface chain differs (includes `IElevatorEdgeBase`), with DecryptData at offset 64 vs 40 for Chrome/Brave.
+
+* **Unicode Console Output**: Enhanced console formatting with UTF-8 box-drawing characters for cleaner visual hierarchy.
+
 ### v0.18.0
 
 * **IElevator2 Interface Support**: Added forward-compatible support for Chrome's new `IElevator2` COM interface ([chromium/chromium@4962049](https://github.com/chromium/chromium/commit/49620496b8f0b7c0c63e2666a82e01180df3f4c3)).
@@ -9,8 +26,7 @@
   * ChromElevator now attempts `IElevator2` first (when available), with automatic fallback to `IElevator` for older Chrome versions.
   * This ensures continued operation across Chrome 143 (legacy), Chrome 144+ (transition period), and future versions (when `IElevator` is removed).
   * New Chrome IElevator2 IID: `{1BF5208B-295F-4992-B5F4-3A9BB6494838}`
-  * Brave Browser support is prepared with placeholder for their upcoming `IElevator2` adoption.
-  * Edge remains unchanged (uses different interface chain).
+  * Brave Browser reuses Chrome's `IElevator2Chrome` IID for compatibility.
 
 * **Chrome Beta Channel Support**: Added Chrome Beta as a separate browser target.
   * Use `--target chrome-beta` or include in `all` scan.

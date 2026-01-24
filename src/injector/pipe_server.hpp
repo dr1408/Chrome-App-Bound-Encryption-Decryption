@@ -18,6 +18,7 @@ namespace Injector {
         int ibans = 0;
         int tokens = 0;
         int profiles = 0;
+        bool noAbe = false;
     };
 
     class PipeServer {
