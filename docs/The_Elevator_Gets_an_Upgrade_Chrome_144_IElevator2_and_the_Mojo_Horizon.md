@@ -2,7 +2,9 @@
 
 **By Alexander 'xaitax' Hagenah**
 
-*Last updated: January 11, 2026*
+*Initial release: January 11, 2026*
+
+*Updated: January 25, 2026 - Added Brave 144 analysis, comprehensive browser comparison table*
 
 Remember when bypassing Chrome's App-Bound Encryption (ABE) felt like you had finally cracked the code? Well, the Chromium team has been busy. Starting with Chrome 144, a new player enters the scene: `IElevator2`. The existing `IElevator` interface isn't going anywhere, but there's now a v2 sibling sitting alongside it - and the commit message is refreshingly candid about why.
 
@@ -238,7 +240,7 @@ The `RunIsolatedChrome` method is potentially more interesting from a security p
 
 ## Verification: comrade_abe.py Analysis
 
-For independent verification, I used my [comrade_abe.py](https://github.com/xaitax/Chrome-App-Bound-Encryption-Decryption/blob/main/tools/comrade_abe.py) tool to analyze both Chrome 143 and Chrome 144 Beta's elevation service:
+For independent verification, I used my [comrade_abe.py](https://github.com/xaitax/Chrome-App-Bound-Encryption-Decryption/blob/main/tools/comrade_abe.py) tool to analyze Chrome 143, Chrome 144, Edge 144, and Brave 144's elevation services:
 
 **Chrome 143 (143.0.7499.193):**
 ```
@@ -246,17 +248,29 @@ total_interfaces_scanned: 6
 abe_capable_interfaces_found: 6
 ```
 
-**Chrome 144 Beta (144.0.7559.59):**
+**Chrome 144 (144.0.7559.97):**
 ```
 total_interfaces_scanned: 12
 abe_capable_interfaces_found: 12
 ```
 
-Both analyses confirmed that `EncryptData` and `DecryptData` maintain their vtable offsets (32 and 40 bytes respectively) across all interfaces in both versions. The `IElevator2` family simply adds two more methods at offsets 48 and 56.
+**Edge 144 (144.0.3719.92):**
+```
+total_interfaces_scanned: 12
+abe_capable_interfaces_found: 11
+```
+
+**Brave 144 (144.1.86.142):**
+```
+total_interfaces_scanned: 13
+abe_capable_interfaces_found: 13
+```
+
+All analyses confirmed that `EncryptData` and `DecryptData` maintain their vtable offsets across all interfaces - 32 and 40 bytes respectively for Chrome and Brave, 56 and 64 bytes for Edge (due to its `IElevatorEdgeBase` inheritance quirk). The `IElevator2` family simply adds two more methods at the end of the vtable.
 
 ## What About Edge? A Tale of Partial Adoption
 
-Running the same analysis on Microsoft Edge 144 (144.0.3719.67) reveals an interesting divergence from Chrome's approach:
+Running the same analysis on Microsoft Edge 144 (144.0.3719.92) reveals an interesting divergence from Chrome's approach:
 
 **Edge 144:**
 ```
@@ -307,6 +321,101 @@ Even with IElevator2, Edge maintains its distinct vtable layout. Any tool target
 
 Edge 144 includes three `IElevatorCopilot*` interfaces (`IElevatorCopilot`, `IElevatorCopilotDev`, `IElevatorCopilotInternal`), presumably supporting Microsoft Copilot integration with ABE-protected data. These follow the same pattern as the Edge variants - inheriting from `IElevator` with no additional methods, just distinct IIDs for the Copilot app. (When exactly these were introduced isn't clear from this analysis alone - they may have appeared in an earlier Edge version.)
 
+## What About Brave? A Unique Hybrid Approach
+
+Brave 144 (144.1.86.142) presents the most interesting case study - a browser that adopted the IElevator2 pattern while maintaining its own distinct identity:
+
+**Brave 144:**
+```
+total_interfaces_scanned: 13
+abe_capable_interfaces_found: 13
+```
+
+Brave actually has *more* interfaces than Chrome or Edge - 13 versus their 12. Here's the breakdown:
+
+| Interface | IID | Notes |
+|-----------|-----|-------|
+| `IElevator` | `{5A9A9462-2FA1-4FEB-B7F2-DF3D19134463}` | **Different IID than Chrome/Edge** |
+| `IElevator2` | `{8F7B6792-...}` | Same as Chrome |
+| `IElevatorChromium` | `{3218DA17-...}` | Brave-specific IID |
+| `IElevatorChrome` | `{F396861E-...}` | Brave-specific IID |
+| `IElevatorChromeBeta` | `{9EBAD7AC-...}` | Brave-specific IID |
+| `IElevatorChromeDev` | `{1E43C77B-...}` | Brave-specific IID |
+| `IElevatorChromeCanary` | `{1DB2116F-...}` | Brave-specific IID |
+| `IElevatorDevelopment` | `{17239BF1-A1DC-4642-846C-1BAC85F96A10}` | **Brave-unique interface** |
+| `IElevator2Chromium` | `{BB19A0E5-...}` | Same as Chrome |
+| `IElevator2Chrome` | `{1BF5208B-...}` | **Same as Chrome** |
+| `IElevator2ChromeBeta` | `{B96A14B8-...}` | Same as Chrome |
+| `IElevator2ChromeDev` | `{3FEFA48E-...}` | Same as Chrome |
+| `IElevator2ChromeCanary` | `{FF672E9F-...}` | Same as Chrome |
+
+### Key Observations
+
+**1. Different Base IElevator IID**
+
+Unlike Edge (which shares Chrome's base `IElevator` IID), Brave uses its own: `{5A9A9462-2FA1-4FEB-B7F2-DF3D19134463}` versus Chrome/Edge's `{A949CB4E-C4F9-44C4-B213-6BF8AA9AC69C}`. This is a deliberate divergence at the foundational level.
+
+**2. Intentional IElevator2 IID Sharing**
+
+Here's where it gets interesting: despite having different base IElevator IIDs, Brave deliberately reuses Chrome's `IElevator2Chrome` IID (`{1BF5208B-295F-4992-B5F4-3A9BB6494838}`). This is a conscious choice for forward compatibility - when the Mojo migration eventually happens, Brave can piggyback on Chrome's implementation without maintaining separate infrastructure.
+
+**3. VTable Layout Matches Chrome**
+
+Unlike Edge's offset quirk, Brave maintains Chrome's vtable layout:
+- `EncryptData`: offset 32 bytes (same as Chrome)
+- `DecryptData`: offset 40 bytes (same as Chrome)
+
+This means the same code path works for both Chrome and Brave - no special handling required.
+
+**4. Unique IElevatorDevelopment Interface**
+
+Brave includes an `IElevatorDevelopment` interface (`{17239BF1-A1DC-4642-846C-1BAC85F96A10}`) that neither Chrome nor Edge have. This appears to be for Brave's internal development builds, separate from the standard Chromium Dev channel.
+
+### The Hybrid Strategy
+
+Brave's approach is pragmatic: maintain independence where it matters (distinct base IElevator IID, unique development interface) while embracing compatibility where it helps (shared IElevator2 IIDs, identical vtable layout). It's the best of both worlds - brand differentiation without the maintenance burden of a completely forked ABE implementation.
+
+## The Complete Picture: Browser Interface Comparison
+
+With all three major Chromium browsers now on version 144, here's a comprehensive comparison:
+
+| Aspect | Chrome 144 | Edge 144 | Brave 144 |
+|--------|------------|----------|-----------|
+| **Total Interfaces** | 12 | 12 | 13 |
+| **ABE-Capable Interfaces** | 12 | 11 | 13 |
+| **Elevation Service CLSID** | `{708860E0-F641-4611-8895-7D867DD3675B}` | `{1FCBE96C-1697-43AF-9140-2897C7C69767}` | `{576B31AF-6369-4B6B-8560-E4B203A97A8B}` |
+| **Base IElevator IID** | `{A949CB4E-C4F9-44C4-B213-6BF8AA9AC69C}` | `{A949CB4E-C4F9-44C4-B213-6BF8AA9AC69C}` | `{5A9A9462-2FA1-4FEB-B7F2-DF3D19134463}` |
+| **IElevator2 Base IID** | `{8F7B6792-...}` | `{8F7B6792-...}` | `{8F7B6792-...}` |
+| **IElevator2 Vendor Variants** | Full set (6) | None | Full set (6) |
+| **EncryptData Offset** | 32 bytes | 56 bytes | 32 bytes |
+| **DecryptData Offset** | 40 bytes | 64 bytes | 40 bytes |
+| **Unique Interfaces** | - | Copilot (3) | Development (1) |
+| **IElevatorEdgeBase in Chain** | No | Yes | No |
+
+### Interface Presence Matrix
+
+| Interface Family | Chrome | Edge | Brave |
+|-----------------|:------:|:----:|:-----:|
+| `IElevator` (base) | Y | Y | Y (different IID) |
+| `IElevator2` (base) | Y | Y | Y |
+| `IElevatorChromium` | Y | - | Y (different IID) |
+| `IElevatorChrome` | Y | - | Y (different IID) |
+| `IElevatorChromeBeta` | Y | - | Y (different IID) |
+| `IElevatorChromeDev` | Y | - | Y (different IID) |
+| `IElevatorChromeCanary` | Y | - | Y (different IID) |
+| `IElevator2Chromium` | Y | - | Y |
+| `IElevator2Chrome` | Y | - | Y |
+| `IElevator2ChromeBeta` | Y | - | Y |
+| `IElevator2ChromeDev` | Y | - | Y |
+| `IElevator2ChromeCanary` | Y | - | Y |
+| `IElevatorUnbranded` | - | Y | - |
+| `IElevatorEdge` | - | Y | - |
+| `IElevatorEdgeBeta` | - | Y | - |
+| `IElevatorEdgeDev` | - | Y | - |
+| `IElevatorEdgeCanary` | - | Y | - |
+| `IElevatorEdgeInternal` | - | Y | - |
+| `IElevatorDevelopment` | - | - | Y |
+
 ## Conclusion
 
 So what do we actually have here? Chrome 144 ships with `IElevator2` - two new methods that are explicitly unimplemented, sitting on top of the same `EncryptData`/`DecryptData` that have been there since Chrome 127. The vtable offsets haven't changed. The COM infrastructure hasn't changed. The path validation logic hasn't changed.
@@ -315,7 +424,7 @@ What *has* changed is intent. The commit message spells it out: they want to mov
 
 For practical purposes: if your code worked against Chrome 143, it works against Chrome 144. The interface IIDs are different, but the methods you care about are at the same offsets. My tool now tries `IElevator2Chrome` first and falls back to `IElevatorChrome` - belt and suspenders.
 
-Edge adopted the base `IElevator2` interface but didn't bother with vendor-specific variants yet. Their vtable offset quirk persists. Brave will presumably follow Chrome's lead once they ship their 144 release - I'll update the tool accordingly when that happens.
+Edge adopted the base `IElevator2` interface but didn't bother with vendor-specific variants yet. Their vtable offset quirk persists. Brave took the most interesting path - different base IElevator IID, but deliberately sharing Chrome's IElevator2 IIDs for forward compatibility, plus a unique `IElevatorDevelopment` interface for good measure.
 
 The Mojo migration, if and when it comes, won't be a magic bullet for ABE security. The trust boundary is between processes, not IPC mechanisms. As long as the browser process needs access to decrypted data, code running inside that process has access too. That's the fundamental design constraint, and no amount of interface reshuffling changes it.
 
@@ -336,9 +445,11 @@ For now, the elevator's still running on the same track. Just with a slightly fa
 - [COMrade ABE Analyzer](https://github.com/xaitax/Chrome-App-Bound-Encryption-Decryption/blob/main/tools/comrade_abe.py) - Python tool for COM interface introspection
 - [The Curious Case of the Cantankerous COM](The_Curious_Case_of_the_Cantankerous_COM_Decrypting_Microsoft_Edge_ABE.md) - Edge ABE vtable analysis
 
-## Appendix: IElevator2 Interface IIDs
+## Appendix A: IElevator2 Interface IIDs
 
-For reference, here are all the new IElevator2-family IIDs introduced in Chrome 144:
+For reference, here are all the IElevator2-family IIDs across browsers:
+
+### Chrome 144
 
 | Interface | IID |
 |-----------|-----|
@@ -348,3 +459,40 @@ For reference, here are all the new IElevator2-family IIDs introduced in Chrome 
 | `IElevator2ChromeBeta` | `{B96A14B8-D0B0-44D8-BA68-2385B2A03254}` |
 | `IElevator2ChromeDev` | `{3FEFA48E-C8BF-461F-AED6-63F658CC850A}` |
 | `IElevator2ChromeCanary` | `{FF672E9F-0994-4322-81E5-3A5A9746140A}` |
+
+### Edge 144
+
+| Interface | IID |
+|-----------|-----|
+| `IElevator2` (base only) | `{8F7B6792-784D-4047-845D-1782EFBEF205}` |
+
+*Note: Edge adopted only the base IElevator2 interface - no vendor-specific variants.*
+
+### Brave 144
+
+| Interface | IID | Notes |
+|-----------|-----|-------|
+| `IElevator2` (base) | `{8F7B6792-784D-4047-845D-1782EFBEF205}` | Same as Chrome |
+| `IElevator2Chromium` | `{BB19A0E5-00C6-4966-94B2-5AFEC6FED93A}` | Same as Chrome |
+| `IElevator2Chrome` | `{1BF5208B-295F-4992-B5F4-3A9BB6494838}` | Same as Chrome |
+| `IElevator2ChromeBeta` | `{B96A14B8-D0B0-44D8-BA68-2385B2A03254}` | Same as Chrome |
+| `IElevator2ChromeDev` | `{3FEFA48E-C8BF-461F-AED6-63F658CC850A}` | Same as Chrome |
+| `IElevator2ChromeCanary` | `{FF672E9F-0994-4322-81E5-3A5A9746140A}` | Same as Chrome |
+
+*Note: Brave deliberately reuses Chrome's IElevator2 IIDs for forward compatibility.*
+
+## Appendix B: Elevation Service CLSIDs
+
+| Browser | CLSID |
+|---------|-------|
+| Chrome | `{708860E0-F641-4611-8895-7D867DD3675B}` |
+| Edge | `{1FCBE96C-1697-43AF-9140-2897C7C69767}` |
+| Brave | `{576B31AF-6369-4B6B-8560-E4B203A97A8B}` |
+
+## Appendix C: Base IElevator IIDs (v1)
+
+| Browser | IID |
+|---------|-----|
+| Chrome | `{A949CB4E-C4F9-44C4-B213-6BF8AA9AC69C}` |
+| Edge | `{A949CB4E-C4F9-44C4-B213-6BF8AA9AC69C}` (same as Chrome) |
+| Brave | `{5A9A9462-2FA1-4FEB-B7F2-DF3D19134463}` (unique) |
