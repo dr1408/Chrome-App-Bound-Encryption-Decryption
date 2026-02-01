@@ -6,9 +6,9 @@
 namespace Core {
 
     // Main version string - shown in banner
-    constexpr const char* VERSION = "0.18.1";
+    constexpr const char* VERSION = "0.18.2";
 
     // Full version for build identification (update for releases)
-    constexpr const char* BUILD_TAG = "v0.18.1";
+    constexpr const char* BUILD_TAG = "v0.18.2";
 
 }

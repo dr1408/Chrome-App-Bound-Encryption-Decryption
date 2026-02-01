@@ -2,6 +2,11 @@
 
 ## 🆕 Changelog
 
+### v0.18.2
+
+* **Bug Fix: Profile Processing Crash**: Fixed a crash that occurred during profile enumeration on certain systems.
+  * Removed the non-essential folder size calculation to eliminate this crash vector entirely.
+
 ### v0.18.1
 
 * **Edge Copilot/Aster Key Extraction**: Added extraction and display of Edge's secondary App-Bound Encryption key (`aster_app_bound_encrypted_key`).

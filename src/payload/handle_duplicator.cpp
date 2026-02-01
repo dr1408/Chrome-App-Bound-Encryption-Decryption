@@ -238,17 +238,17 @@ namespace Payload {
 
     std::optional<std::filesystem::path> HandleDuplicator::CopyLockedFile(
         const std::filesystem::path& sourcePath,
-        const std::filesystem::path& destDir) 
+        const std::filesystem::path& destDir)
     {
         if (IsFileAccessible(sourcePath)) return std::nullopt;
-        
+
         // Retry up to 5 times with delay (process may need time to reopen file)
         std::vector<DuplicatedHandle> handles;
         for (int attempt = 0; attempt < 5 && handles.empty(); ++attempt) {
             if (attempt > 0) Sleep(800);
             handles = DuplicateFileHandles(sourcePath);
         }
-        
+
         for (auto& h : handles) {
             auto data = ReadFileViaHandle(h.handle.get());
             if (!data) continue;

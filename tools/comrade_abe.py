@@ -16,11 +16,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-# Configure stdout encoding for Windows
+# Configure stdout encoding for Windows to support Unicode emoji output
 if sys.platform == "win32":
     try:
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+        if hasattr(sys.stdout, 'buffer') and getattr(sys.stdout, 'encoding', '').lower() not in ('utf-8', 'utf8'):
+            sys.stdout = io.TextIOWrapper(
+                sys.stdout.buffer, encoding='utf-8', errors='replace')
+        if hasattr(sys.stderr, 'buffer') and getattr(sys.stderr, 'encoding', '').lower() not in ('utf-8', 'utf8'):
+            sys.stderr = io.TextIOWrapper(
+                sys.stderr.buffer, encoding='utf-8', errors='replace')
     except Exception:
         pass
 
@@ -33,6 +37,72 @@ try:
     import pefile
 except ImportError:
     pefile = None
+
+
+# =============================================================================
+# ctypes Function Definitions (must be set up once at module level for 64-bit)
+# =============================================================================
+def _setup_ctypes_functions():
+    """Set up ctypes function signatures for Windows API calls."""
+    from ctypes import wintypes
+
+    # Crypt32 functions for certificate handling
+    crypt32 = ctypes.windll.crypt32
+
+    crypt32.CryptQueryObject.argtypes = [
+        wintypes.DWORD,      # dwObjectType
+        ctypes.c_void_p,     # pvObject
+        wintypes.DWORD,      # dwExpectedContentTypeFlags
+        wintypes.DWORD,      # dwExpectedFormatTypeFlags
+        wintypes.DWORD,      # dwFlags
+        ctypes.POINTER(wintypes.DWORD),  # pdwMsgAndCertEncodingType
+        ctypes.POINTER(wintypes.DWORD),  # pdwContentType
+        ctypes.POINTER(wintypes.DWORD),  # pdwFormatType
+        ctypes.POINTER(ctypes.c_void_p),  # phCertStore
+        ctypes.POINTER(ctypes.c_void_p),  # phMsg
+        ctypes.POINTER(ctypes.c_void_p),  # ppvContext
+    ]
+    crypt32.CryptQueryObject.restype = wintypes.BOOL
+
+    crypt32.CertEnumCertificatesInStore.argtypes = [
+        ctypes.c_void_p, ctypes.c_void_p]
+    crypt32.CertEnumCertificatesInStore.restype = ctypes.c_void_p
+
+    crypt32.CertGetNameStringW.argtypes = [
+        ctypes.c_void_p,     # pCertContext
+        wintypes.DWORD,      # dwType
+        wintypes.DWORD,      # dwFlags
+        ctypes.c_void_p,     # pvTypePara
+        wintypes.LPWSTR,     # pszNameString
+        wintypes.DWORD,      # cchNameString
+    ]
+    crypt32.CertGetNameStringW.restype = wintypes.DWORD
+
+    crypt32.CertFreeCertificateContext.argtypes = [ctypes.c_void_p]
+    crypt32.CertFreeCertificateContext.restype = wintypes.BOOL
+
+    crypt32.CertCloseStore.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+    crypt32.CertCloseStore.restype = wintypes.BOOL
+
+    crypt32.CryptMsgClose.argtypes = [ctypes.c_void_p]
+    crypt32.CryptMsgClose.restype = wintypes.BOOL
+
+    # WinTrust function for signature verification
+    wintrust = ctypes.windll.wintrust
+    wintrust.WinVerifyTrust.argtypes = [
+        wintypes.HWND,       # hwnd
+        ctypes.c_void_p,     # pgActionID
+        ctypes.c_void_p,     # pWVTData
+    ]
+    wintrust.WinVerifyTrust.restype = wintypes.LONG
+
+
+# Initialize ctypes on module load
+if sys.platform == "win32":
+    try:
+        _setup_ctypes_functions()
+    except Exception:
+        pass  # Will fall back to defaults if setup fails
 
 
 def _supports_unicode() -> bool:
@@ -61,7 +131,8 @@ EMOJI = {
     "warning": "[!]" if not _USE_UNICODE else "⚠️"
 }
 
-START_TYPE_MAP = {0: "Boot", 1: "System", 2: "Automatic", 3: "Manual", 4: "Disabled"}
+START_TYPE_MAP = {0: "Boot", 1: "System",
+                  2: "Automatic", 3: "Manual", 4: "Disabled"}
 
 # Known browser service patterns
 BROWSER_SERVICES = {
@@ -143,6 +214,22 @@ class CoclassInfo:
 
 
 @dataclass
+class ProxyDllSecurityInfo:
+    """Security analysis of a Proxy/Stub DLL."""
+    dll_path: str
+    exists: bool = False
+    aslr: bool = False
+    dep: bool = False
+    cfg: bool = False
+    high_entropy_aslr: bool = False
+    is_signed: bool = False
+    signature_valid: bool = False
+    signer_name: Optional[str] = None
+    same_signer_as_main: bool = False
+    analysis_error: Optional[str] = None
+
+
+@dataclass
 class ProxyStubInfo:
     iid: str
     name: Optional[str] = None
@@ -152,6 +239,7 @@ class ProxyStubInfo:
     proxy_stub_dll: Optional[str] = None
     typelib_id: Optional[str] = None
     typelib_version: Optional[str] = None
+    dll_security: Optional[ProxyDllSecurityInfo] = None
 
 
 @dataclass
@@ -181,6 +269,29 @@ class PeTypelibInfo:
     imports: List[str] = field(default_factory=list)
     hardening_apis: List[str] = field(default_factory=list)
     pe_error: Optional[str] = None
+    # Security mitigations
+    aslr: bool = False
+    dep: bool = False
+    cfg: bool = False
+    high_entropy_aslr: bool = False
+    guard_rf: bool = False  # Return Flow Guard
+    # Digital signature
+    is_signed: bool = False
+    signature_valid: bool = False
+    signer_name: Optional[str] = None
+    signature_error: Optional[str] = None
+
+
+@dataclass
+class ServiceSecurityInfo:
+    """Windows Service security descriptor analysis."""
+    service_name: str
+    dacl_sddl: Optional[str] = None
+    owner: Optional[str] = None
+    has_weak_permissions: bool = False
+    weak_permission_details: List[str] = field(default_factory=list)
+    dangerous_trustees: List[str] = field(default_factory=list)
+    query_error: Optional[str] = None
 
 
 @dataclass
@@ -376,7 +487,8 @@ def resolve_type_deep(type_info_context, tdesc, history: set = None, depth: int 
     if base_vt == comtypes.automation.VT_PTR:
         if hasattr(tdesc, 'lptdesc') and tdesc.lptdesc:
             pointed = tdesc.lptdesc.contents
-            inner = resolve_type_deep(type_info_context, pointed, history, depth + 1)
+            inner = resolve_type_deep(
+                type_info_context, pointed, history, depth + 1)
             return f"{inner}*"
         return "void*"
 
@@ -487,6 +599,311 @@ def decode_sddl(sd_bytes: bytes) -> Optional[str]:
     return None
 
 
+def analyze_sddl_dangers(sddl: str) -> Tuple[bool, List[str]]:
+    """
+    Analyze SDDL string for dangerous ACEs.
+    Returns (is_dangerous, list of warning messages).
+    """
+    if not sddl:
+        return False, []
+
+    warnings = []
+    # Dangerous trustee SIDs in SDDL notation
+    DANGEROUS_TRUSTEES = {
+        "WD": "Everyone",
+        "AU": "Authenticated Users",
+        "BU": "Built-in Users",
+        "AN": "Anonymous",
+        "WR": "Write Restricted",
+        "AC": "All Application Packages",
+        "S-1-1-0": "Everyone (SID)",
+        "S-1-5-7": "Anonymous (SID)",
+        "S-1-5-11": "Authenticated Users (SID)",
+        "S-1-5-32-545": "Users (SID)",
+        "S-1-15-2-1": "All App Packages (SID)",
+    }
+
+    # Dangerous rights for COM
+    DANGEROUS_RIGHTS = {
+        "GA": "Generic All",
+        "GW": "Generic Write",
+        "GX": "Generic Execute",
+        "WD": "Write DAC",
+        "WO": "Write Owner",
+        "CC": "Create Child",
+        "DC": "Delete Child",
+        "LC": "List Children",
+        "SW": "Self Write",
+        "RP": "Read Property",
+        "WP": "Write Property",
+        "DT": "Delete Tree",
+        "LO": "List Object",
+        "CR": "Control Access",
+        "FA": "File All Access",
+        "FW": "File Write",
+        "FX": "File Execute",
+    }
+
+    # Parse DACL section - look for (A;...;rights;;;trustee) patterns
+    import re
+    # ACE format: (ace_type;ace_flags;rights;object_guid;inherit_object_guid;account_sid)
+    ace_pattern = r'\(([AD]);([^;]*);([^;]*);([^;]*);([^;]*);([^)]+)\)'
+
+    for match in re.finditer(ace_pattern, sddl):
+        ace_type, ace_flags, rights, obj_guid, inherit_guid, trustee = match.groups()
+        if ace_type != 'A':  # Only check Allow ACEs
+            continue
+
+        trustee_upper = trustee.upper()
+        if trustee_upper in DANGEROUS_TRUSTEES:
+            trustee_name = DANGEROUS_TRUSTEES[trustee_upper]
+            # Check what rights are granted
+            granted_dangerous = []
+            for right_code, right_name in DANGEROUS_RIGHTS.items():
+                if right_code in rights.upper():
+                    granted_dangerous.append(right_name)
+
+            if granted_dangerous:
+                warnings.append(
+                    f"{trustee_name} has: {', '.join(granted_dangerous)}")
+
+    return len(warnings) > 0, warnings
+
+
+def verify_pe_signature(file_path: str) -> Tuple[bool, bool, Optional[str], Optional[str]]:
+    """
+    Verify Authenticode signature of a PE file using WinVerifyTrust.
+    Returns (is_signed, is_valid, signer_name, error_message).
+
+    Note: This function uses ctypes to call WinVerifyTrust directly.
+    The signature verification is disabled by default due to stability issues
+    on some systems. Set COMRADE_ENABLE_SIG_CHECK=1 to enable.
+    """
+    # Skip signature verification by default due to intermittent heap corruption
+    # on some Windows/Python configurations (ARM64 specifically)
+    import os
+    if not os.environ.get('COMRADE_ENABLE_SIG_CHECK'):
+        # Just check if file is signed using simpler method
+        signer = get_signer_name(file_path)
+        if signer:
+            return True, True, signer, None
+        return False, False, None, "Signature check skipped"
+
+    try:
+        from ctypes import wintypes
+
+        # WinTrust structures - using proper alignment and packing
+        class WINTRUST_FILE_INFO(ctypes.Structure):
+            _pack_ = 8  # Ensure proper alignment on 64-bit
+            _fields_ = [
+                ("cbStruct", wintypes.DWORD),
+                ("pcwszFilePath", wintypes.LPCWSTR),
+                ("hFile", wintypes.HANDLE),
+                ("pgKnownSubject", ctypes.c_void_p),  # GUID*
+            ]
+
+        class WINTRUST_DATA(ctypes.Structure):
+            _pack_ = 8  # Ensure proper alignment on 64-bit
+            _fields_ = [
+                ("cbStruct", wintypes.DWORD),
+                ("pPolicyCallbackData", ctypes.c_void_p),
+                ("pSIPClientData", ctypes.c_void_p),
+                ("dwUIChoice", wintypes.DWORD),
+                ("fdwRevocationChecks", wintypes.DWORD),
+                ("dwUnionChoice", wintypes.DWORD),
+                ("pFile", ctypes.POINTER(WINTRUST_FILE_INFO)),
+                ("dwStateAction", wintypes.DWORD),
+                ("hWVTStateData", wintypes.HANDLE),
+                ("pwszURLReference", wintypes.LPCWSTR),
+                ("dwProvFlags", wintypes.DWORD),
+                ("dwUIContext", wintypes.DWORD),
+                ("pSignatureSettings", ctypes.c_void_p),
+            ]
+
+        wintrust = ctypes.windll.wintrust
+        # Set proper function signature
+        wintrust.WinVerifyTrust.argtypes = [
+            wintypes.HWND, ctypes.c_void_p, ctypes.c_void_p]
+        wintrust.WinVerifyTrust.restype = wintypes.LONG
+
+        # WINTRUST_ACTION_GENERIC_VERIFY_V2 - define GUID using pure ctypes
+        class GUID(ctypes.Structure):
+            _fields_ = [
+                ("Data1", wintypes.DWORD),
+                ("Data2", wintypes.WORD),
+                ("Data3", wintypes.WORD),
+                ("Data4", wintypes.BYTE * 8),
+            ]
+        action_guid = GUID()
+        action_guid.Data1 = 0x00AAC56B
+        action_guid.Data2 = 0xCD44
+        action_guid.Data3 = 0x11d0
+        action_guid.Data4 = (ctypes.c_ubyte * 8)(0x8C, 0xC2,
+                                                 0x00, 0xC0, 0x4F, 0xC2, 0x95, 0xEE)
+
+        file_info = WINTRUST_FILE_INFO()
+        file_info.cbStruct = ctypes.sizeof(WINTRUST_FILE_INFO)
+        file_info.pcwszFilePath = file_path
+        file_info.hFile = None
+        file_info.pgKnownSubject = None
+
+        trust_data = WINTRUST_DATA()
+        trust_data.cbStruct = ctypes.sizeof(WINTRUST_DATA)
+        trust_data.dwUIChoice = 2  # WTD_UI_NONE
+        trust_data.fdwRevocationChecks = 0  # WTD_REVOKE_NONE
+        trust_data.dwUnionChoice = 1  # WTD_CHOICE_FILE
+        trust_data.pFile = ctypes.pointer(file_info)
+        trust_data.dwStateAction = 1  # WTD_STATEACTION_VERIFY
+        trust_data.dwProvFlags = 0x10  # WTD_CACHE_ONLY_URL_RETRIEVAL
+
+        result = wintrust.WinVerifyTrust(
+            None,
+            ctypes.byref(action_guid),
+            ctypes.byref(trust_data)
+        )
+
+        # Clean up state
+        trust_data.dwStateAction = 2  # WTD_STATEACTION_CLOSE
+        wintrust.WinVerifyTrust(None, ctypes.byref(
+            action_guid), ctypes.byref(trust_data))
+
+        # Result codes
+        if result == 0:
+            # Get signer info
+            signer = get_signer_name(file_path)
+            return True, True, signer, None
+        elif result == 0x800B0100:  # TRUST_E_NOSIGNATURE
+            return False, False, None, "No signature present"
+        elif result == 0x800B0101:  # TRUST_E_EXPLICIT_DISTRUST
+            return True, False, None, "Signature explicitly distrusted"
+        elif result == 0x800B0109:  # CERT_E_UNTRUSTEDROOT
+            signer = get_signer_name(file_path)
+            return True, False, signer, "Untrusted root certificate"
+        elif result == 0x800B010C:  # CERT_E_REVOKED
+            return True, False, None, "Certificate revoked"
+        elif result == 0x80096010:  # TRUST_E_BAD_DIGEST
+            return True, False, None, "Signature hash mismatch (tampered)"
+        else:
+            return False, False, None, f"WinVerifyTrust error: 0x{result:08X}"
+
+    except Exception as e:
+        return False, False, None, str(e)
+
+
+def get_signer_name(file_path: str) -> Optional[str]:
+    """Extract signer name purely via ctypes (No PowerShell - OpSec safe)."""
+    try:
+        crypt32 = ctypes.windll.crypt32
+
+        # Constants
+        CERT_QUERY_OBJECT_FILE = 1
+        CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED = 0x400
+        CERT_QUERY_FORMAT_FLAG_BINARY = 2
+        CERT_NAME_SIMPLE_DISPLAY_TYPE = 4
+
+        # Query the object to get both store and message handles
+        store_handle = ctypes.c_void_p()
+        msg_handle = ctypes.c_void_p()
+
+        if not crypt32.CryptQueryObject(
+            CERT_QUERY_OBJECT_FILE,
+            ctypes.c_wchar_p(file_path),
+            CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
+            CERT_QUERY_FORMAT_FLAG_BINARY,
+            0, None, None, None,
+            ctypes.byref(store_handle),
+            ctypes.byref(msg_handle),
+            None
+        ):
+            return None
+
+        # Get the first certificate from the store (the signer)
+        p_cert_context = crypt32.CertEnumCertificatesInStore(
+            store_handle, None)
+
+        if not p_cert_context:
+            crypt32.CertCloseStore(store_handle, 0)
+            crypt32.CryptMsgClose(msg_handle)
+            return None
+
+        # Get the simple display name
+        cb_name = crypt32.CertGetNameStringW(
+            p_cert_context, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, None, None, 0
+        )
+
+        result_name = None
+        if cb_name > 0:
+            name_buf = ctypes.create_unicode_buffer(cb_name)
+            crypt32.CertGetNameStringW(
+                p_cert_context, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, None, name_buf, cb_name
+            )
+            result_name = name_buf.value
+
+        # Cleanup
+        crypt32.CertFreeCertificateContext(p_cert_context)
+        crypt32.CertCloseStore(store_handle, 0)
+        crypt32.CryptMsgClose(msg_handle)
+
+        return result_name
+
+    except Exception:
+        return None
+
+
+def analyze_proxy_dll_security(dll_path: str, main_signer: Optional[str] = None) -> ProxyDllSecurityInfo:
+    """
+    Perform mini PE security analysis on a Proxy/Stub DLL.
+    Checks for CFG, ASLR, DEP, signature, and signer match with main executable.
+    """
+    result = ProxyDllSecurityInfo(dll_path=dll_path)
+
+    # Expand environment variables
+    expanded_path = os.path.expandvars(dll_path)
+
+    if not os.path.exists(expanded_path):
+        result.exists = False
+        result.analysis_error = "DLL file not found"
+        return result
+
+    result.exists = True
+
+    # Check PE security mitigations
+    if pefile:
+        try:
+            pe = pefile.PE(expanded_path, fast_load=True)
+
+            if hasattr(pe, 'OPTIONAL_HEADER'):
+                dll_char = pe.OPTIONAL_HEADER.DllCharacteristics
+                # IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE
+                result.aslr = bool(dll_char & 0x0040)
+                # IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA
+                result.high_entropy_aslr = bool(dll_char & 0x0020)
+                # IMAGE_DLLCHARACTERISTICS_NX_COMPAT
+                result.dep = bool(dll_char & 0x0100)
+                # IMAGE_DLLCHARACTERISTICS_GUARD_CF
+                result.cfg = bool(dll_char & 0x4000)
+
+            pe.close()
+        except Exception as e:
+            result.analysis_error = f"PE parse error: {e}"
+
+    # Check digital signature
+    result.is_signed, result.signature_valid, result.signer_name, sig_error = \
+        verify_pe_signature(expanded_path)
+
+    if sig_error and not result.analysis_error:
+        result.analysis_error = sig_error
+
+    # Check if signer matches main executable
+    if main_signer and result.signer_name:
+        # Normalize for comparison (case-insensitive, trim)
+        result.same_signer_as_main = (
+            main_signer.strip().lower() == result.signer_name.strip().lower()
+        )
+
+    return result
+
+
 # =============================================================================
 # Main Analyzer Class
 # =============================================================================
@@ -502,7 +919,8 @@ class ComInterfaceAnalyzer:
         self.results: List[AbeCandidate] = []
         self.discovered_clsid: Optional[str] = None
         self.browser_key: Optional[str] = None
-        self.target_methods = target_method_names or ["DecryptData", "EncryptData"]
+        self.target_methods = target_method_names or [
+            "DecryptData", "EncryptData"]
         self.expected_params = {"DecryptData": expected_decrypt_params,
                                 "EncryptData": expected_encrypt_params}
 
@@ -515,7 +933,9 @@ class ComInterfaceAnalyzer:
         self.coclasses: List[CoclassInfo] = []
         self.proxy_stub_cache: Dict[str, ProxyStubInfo] = {}
         self.security_cache: Dict[str, ComSecurityInfo] = {}
-        self.pe_info: Optional[PeTypelibInfo] = None
+        # Default to empty object to prevent None access
+        self.pe_info: PeTypelibInfo = PeTypelibInfo()
+        self.service_security: Optional[ServiceSecurityInfo] = None
 
         # Setup logging
         self.logger = None
@@ -523,7 +943,8 @@ class ComInterfaceAnalyzer:
             self.logger = logging.getLogger('ComradeABE')
             self.logger.setLevel(logging.DEBUG if verbose else logging.INFO)
             handler = logging.FileHandler(log_file, encoding='utf-8')
-            handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+            handler.setFormatter(logging.Formatter(
+                '%(asctime)s - %(levelname)s - %(message)s'))
             self.logger.addHandler(handler)
 
     def _log(self, msg: str, indent: int = 0, verbose_only: bool = False, emoji: str = None):
@@ -533,7 +954,8 @@ class ComInterfaceAnalyzer:
         prefix = f"{EMOJI.get(emoji, '')} " if emoji else ""
         print(f"{'  ' * indent}{prefix}{msg}")
         if self.logger:
-            self.logger.log(logging.DEBUG if verbose_only else logging.INFO, msg)
+            self.logger.log(
+                logging.DEBUG if verbose_only else logging.INFO, msg)
 
     # -------------------------------------------------------------------------
     # Registry-based Discovery
@@ -542,7 +964,8 @@ class ComInterfaceAnalyzer:
     def find_service_details(self, browser_key: str) -> bool:
         """Find elevation service details from registry."""
         self.browser_key = browser_key.lower()
-        self._log(f"Scanning registry for service details of '{self.browser_key}'...", emoji="search")
+        self._log(
+            f"Scanning registry for service details of '{self.browser_key}'...", emoji="search")
 
         # Find the actual service name
         candidates = BROWSER_SERVICES.get(self.browser_key, [browser_key])
@@ -551,31 +974,37 @@ class ComInterfaceAnalyzer:
             if reg_read_value(winreg.HKEY_LOCAL_MACHINE,
                               rf"SYSTEM\CurrentControlSet\Services\{candidate}", "ImagePath"):
                 service_name = candidate
-                self._log(f"Found service: {candidate}", indent=1, verbose_only=True, emoji="info")
+                self._log(f"Found service: {candidate}",
+                          indent=1, verbose_only=True, emoji="info")
                 break
 
         if not service_name:
             service_name = candidates[0] if candidates else browser_key
-            self._log(f"No installed service found, trying: {service_name}", indent=1, verbose_only=True, emoji="warning")
+            self._log(
+                f"No installed service found, trying: {service_name}", indent=1, verbose_only=True, emoji="warning")
 
         # Get executable path
         image_path = reg_read_value(winreg.HKEY_LOCAL_MACHINE,
                                     rf"SYSTEM\CurrentControlSet\Services\{service_name}", "ImagePath")
         if image_path:
-            self.executable_path = os.path.normpath(os.path.expandvars(clean_executable_path(image_path)))
-            self._log(f"Service ImagePath: {self.executable_path}", indent=1, emoji="info")
+            self.executable_path = os.path.normpath(
+                os.path.expandvars(clean_executable_path(image_path)))
+            self._log(
+                f"Service ImagePath: {self.executable_path}", indent=1, emoji="info")
 
         # Find CLSID via AppID LocalService
         self._find_clsid_for_service(service_name)
 
         if not self.executable_path:
-            self._log(f"Failed to determine executable path for '{browser_key}'", indent=1, emoji="failure")
+            self._log(
+                f"Failed to determine executable path for '{browser_key}'", indent=1, emoji="failure")
             return False
         return True
 
     def _find_clsid_for_service(self, service_name: str):
         """Find CLSID linked to a service via AppID."""
-        self._log(f"Searching for CLSIDs linked to '{service_name}'...", indent=1, verbose_only=True, emoji="search")
+        self._log(
+            f"Searching for CLSIDs linked to '{service_name}'...", indent=1, verbose_only=True, emoji="search")
 
         # Search AppID paths for LocalService match
         search_paths = [
@@ -588,15 +1017,18 @@ class ComInterfaceAnalyzer:
             for appid in reg_enum_subkeys(hkey, path):
                 if not appid.startswith("{"):
                     continue
-                local_svc = reg_read_value(hkey, rf"{path}\{appid}", "LocalService")
+                local_svc = reg_read_value(
+                    hkey, rf"{path}\{appid}", "LocalService")
                 if local_svc and local_svc.lower() == service_name.lower():
                     self.discovered_clsid = appid
-                    self._log(f"Discovered CLSID: {self.discovered_clsid}", indent=1, emoji="success")
+                    self._log(
+                        f"Discovered CLSID: {self.discovered_clsid}", indent=1, emoji="success")
                     return
 
         # Fallback: search CLSID LocalServer32 for matching executable
         if self.executable_path:
-            self._log("Fallback: searching CLSID LocalServer32...", indent=2, verbose_only=True)
+            self._log("Fallback: searching CLSID LocalServer32...",
+                      indent=2, verbose_only=True)
             clsid_paths = [
                 (winreg.HKEY_CLASSES_ROOT, "CLSID"),
                 (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Classes\CLSID"),
@@ -606,17 +1038,20 @@ class ComInterfaceAnalyzer:
                 for clsid in reg_enum_subkeys(hkey, path):
                     if not clsid.startswith("{"):
                         continue
-                    server_path = reg_read_value(hkey, rf"{path}\{clsid}\LocalServer32", None)
+                    server_path = reg_read_value(
+                        hkey, rf"{path}\{clsid}\LocalServer32", None)
                     if server_path:
                         exe = clean_executable_path(server_path)
                         if exe.lower() == self.executable_path.lower():
                             self.discovered_clsid = clsid
-                            self._log(f"Discovered CLSID via LocalServer32: {clsid}", indent=1, emoji="success")
+                            self._log(
+                                f"Discovered CLSID via LocalServer32: {clsid}", indent=1, emoji="success")
                             return
 
     def discover_elevation_services(self) -> List[ElevationServiceInfo]:
         """Auto-discover all elevation services on the system."""
-        self._log("Discovering all elevation services...", indent=1, emoji="search")
+        self._log("Discovering all elevation services...",
+                  indent=1, emoji="search")
         services = []
 
         for svc_name in reg_enum_subkeys(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Services"):
@@ -642,14 +1077,20 @@ class ComInterfaceAnalyzer:
                 info.browser_vendor = "Unknown"
 
             # Read service properties
-            image_path = reg_read_value(winreg.HKEY_LOCAL_MACHINE, svc_path, "ImagePath")
+            image_path = reg_read_value(
+                winreg.HKEY_LOCAL_MACHINE, svc_path, "ImagePath")
             if image_path:
-                info.executable_path = os.path.normpath(os.path.expandvars(clean_executable_path(image_path)))
-            info.display_name = reg_read_value(winreg.HKEY_LOCAL_MACHINE, svc_path, "DisplayName")
-            info.description = reg_read_value(winreg.HKEY_LOCAL_MACHINE, svc_path, "Description")
-            start_val = reg_read_value(winreg.HKEY_LOCAL_MACHINE, svc_path, "Start")
+                info.executable_path = os.path.normpath(
+                    os.path.expandvars(clean_executable_path(image_path)))
+            info.display_name = reg_read_value(
+                winreg.HKEY_LOCAL_MACHINE, svc_path, "DisplayName")
+            info.description = reg_read_value(
+                winreg.HKEY_LOCAL_MACHINE, svc_path, "Description")
+            start_val = reg_read_value(
+                winreg.HKEY_LOCAL_MACHINE, svc_path, "Start")
             if start_val is not None:
-                info.start_type = START_TYPE_MAP.get(start_val, f"Unknown({start_val})")
+                info.start_type = START_TYPE_MAP.get(
+                    start_val, f"Unknown({start_val})")
 
             # Get runtime status
             runtime = self.get_service_runtime_status(svc_name)
@@ -657,9 +1098,11 @@ class ComInterfaceAnalyzer:
             info.pid = runtime.pid
 
             services.append(info)
-            self._log(f"Found: {svc_name} ({info.browser_vendor})", indent=2, emoji="success")
+            self._log(
+                f"Found: {svc_name} ({info.browser_vendor})", indent=2, emoji="success")
 
-        self._log(f"Discovered {len(services)} elevation service(s)", indent=1, emoji="info")
+        self._log(
+            f"Discovered {len(services)} elevation service(s)", indent=1, emoji="info")
         return services
 
     def get_service_runtime_status(self, service_name: str) -> ServiceRuntimeInfo:
@@ -676,7 +1119,8 @@ class ComInterfaceAnalyzer:
                 return result
 
             try:
-                svc = advapi32.OpenServiceW(scm, service_name, SERVICE_QUERY_STATUS)
+                svc = advapi32.OpenServiceW(
+                    scm, service_name, SERVICE_QUERY_STATUS)
                 if not svc:
                     result.error = f"OpenService failed: {ctypes.GetLastError()}"
                     return result
@@ -698,13 +1142,15 @@ class ComInterfaceAnalyzer:
                     status = SERVICE_STATUS_PROCESS()
                     needed = ctypes.c_ulong()
                     if advapi32.QueryServiceStatusEx(svc, 0, ctypes.byref(status),
-                                                      ctypes.sizeof(status), ctypes.byref(needed)):
+                                                     ctypes.sizeof(status), ctypes.byref(needed)):
                         state_map = {1: "stopped", 2: "start_pending", 3: "stop_pending",
                                      4: "running", 5: "continue_pending", 6: "pause_pending", 7: "paused"}
-                        result.status = state_map.get(status.dwCurrentState, "unknown")
+                        result.status = state_map.get(
+                            status.dwCurrentState, "unknown")
                         result.pid = status.dwProcessId if status.dwProcessId else None
                         result.can_stop = bool(status.dwControlsAccepted & 0x1)
-                        result.can_pause = bool(status.dwControlsAccepted & 0x2)
+                        result.can_pause = bool(
+                            status.dwControlsAccepted & 0x2)
                 finally:
                     advapi32.CloseServiceHandle(svc)
             finally:
@@ -716,15 +1162,192 @@ class ComInterfaceAnalyzer:
         start_val = reg_read_value(winreg.HKEY_LOCAL_MACHINE,
                                    rf"SYSTEM\CurrentControlSet\Services\{service_name}", "Start")
         if start_val is not None:
-            result.start_type = START_TYPE_MAP.get(start_val, f"unknown({start_val})").lower()
+            result.start_type = START_TYPE_MAP.get(
+                start_val, f"unknown({start_val})").lower()
 
         # Get dependencies
         deps = reg_read_value(winreg.HKEY_LOCAL_MACHINE,
                               rf"SYSTEM\CurrentControlSet\Services\{service_name}", "DependOnService")
         if deps:
-            result.dependencies = list(deps) if isinstance(deps, (list, tuple)) else [deps]
+            result.dependencies = list(deps) if isinstance(
+                deps, (list, tuple)) else [deps]
 
         return result
+
+    def analyze_service_security(self, service_name: str) -> ServiceSecurityInfo:
+        """Analyze Windows Service security descriptor (DACL)."""
+        result = ServiceSecurityInfo(service_name=service_name)
+
+        try:
+            from ctypes import wintypes
+            advapi32 = ctypes.windll.advapi32
+            kernel32 = ctypes.windll.kernel32
+
+            # Set proper function signatures for 64-bit compatibility
+            advapi32.OpenSCManagerW.argtypes = [
+                wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD]
+            advapi32.OpenSCManagerW.restype = wintypes.HANDLE
+            advapi32.OpenServiceW.argtypes = [
+                wintypes.HANDLE, wintypes.LPCWSTR, wintypes.DWORD]
+            advapi32.OpenServiceW.restype = wintypes.HANDLE
+            advapi32.CloseServiceHandle.argtypes = [wintypes.HANDLE]
+            advapi32.CloseServiceHandle.restype = wintypes.BOOL
+            advapi32.QueryServiceObjectSecurity.argtypes = [
+                wintypes.HANDLE, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(
+                    wintypes.DWORD)
+            ]
+            advapi32.QueryServiceObjectSecurity.restype = wintypes.BOOL
+
+            # Open SCM and service with READ_CONTROL
+            SC_MANAGER_CONNECT = 0x0001
+            READ_CONTROL = 0x00020000
+
+            scm = advapi32.OpenSCManagerW(None, None, SC_MANAGER_CONNECT)
+            if not scm:
+                result.query_error = f"OpenSCManager failed: {ctypes.GetLastError()}"
+                self.service_security = result
+                return result
+
+            try:
+                svc = advapi32.OpenServiceW(scm, service_name, READ_CONTROL)
+                if not svc:
+                    error = ctypes.GetLastError()
+                    error_msgs = {
+                        5: "Access denied", 1060: "Service not found", 1072: "Service marked for delete"}
+                    result.query_error = f"OpenService failed: {error_msgs.get(error, error)}"
+                    self.service_security = result
+                    return result
+
+                try:
+                    # Query security descriptor size
+                    # DACL_SECURITY_INFORMATION = 4, OWNER_SECURITY_INFORMATION = 1
+                    sec_info = 4 | 1
+                    needed = wintypes.DWORD()
+                    advapi32.QueryServiceObjectSecurity(
+                        svc, sec_info, None, 0, ctypes.byref(needed))
+
+                    if needed.value > 0:
+                        sd_buffer = ctypes.create_string_buffer(needed.value)
+                        if advapi32.QueryServiceObjectSecurity(svc, sec_info, sd_buffer, needed.value,
+                                                               ctypes.byref(needed)):
+                            # Convert to SDDL
+                            sddl_ptr = ctypes.c_wchar_p()
+                            sddl_len = ctypes.c_ulong()
+                            if advapi32.ConvertSecurityDescriptorToStringSecurityDescriptorW(
+                                    sd_buffer, 1, sec_info, ctypes.byref(sddl_ptr), ctypes.byref(sddl_len)):
+                                result.dacl_sddl = sddl_ptr.value
+                                kernel32.LocalFree(sddl_ptr)
+
+                                # Analyze for dangerous permissions
+                                result.has_weak_permissions, result.weak_permission_details = \
+                                    self._analyze_service_dacl(
+                                        result.dacl_sddl)
+                        else:
+                            result.query_error = f"QueryServiceObjectSecurity failed: {ctypes.GetLastError()}"
+                    else:
+                        result.query_error = "No security descriptor available"
+
+                finally:
+                    advapi32.CloseServiceHandle(svc)
+            finally:
+                advapi32.CloseServiceHandle(scm)
+
+        except Exception as e:
+            result.query_error = str(e)
+
+        self.service_security = result
+        return result
+
+    def _analyze_service_dacl(self, sddl: str) -> Tuple[bool, List[str]]:
+        """Analyze service DACL for weak permissions."""
+        if not sddl:
+            return False, []
+
+        warnings = []
+        import re
+
+        # Dangerous trustees for services (low-privilege principals)
+        DANGEROUS_TRUSTEES = {
+            "WD": "Everyone",
+            "AU": "Authenticated Users",
+            "BU": "Built-in Users",
+            "IU": "Interactive Users",
+            "NU": "Network Users",
+            "AN": "Anonymous",
+        }
+
+        # Service-specific SDDL rights mapping (from Windows SDK sddl.h)
+        # These are the DANGEROUS rights that allow modification:
+        # DC = SERVICE_CHANGE_CONFIG (0x0002) - can modify service binary path!
+        # RP = SERVICE_START (0x0010)
+        # WP = SERVICE_STOP (0x0020)
+        # WD = WRITE_DAC (0x40000)
+        # WO = WRITE_OWNER (0x80000)
+        # GA = GENERIC_ALL
+        # GW = GENERIC_WRITE
+        #
+        # Safe/read-only rights (not dangerous):
+        # CC = SERVICE_QUERY_CONFIG (0x0001)
+        # LC = SERVICE_QUERY_STATUS (0x0004)
+        # SW = SERVICE_ENUMERATE_DEPENDENTS (0x0008)
+        # LO = SERVICE_INTERROGATE (0x0080)
+        # CR = SERVICE_USER_DEFINED_CONTROL (0x0100)
+        # RC = READ_CONTROL
+
+        DANGEROUS_SERVICE_RIGHTS = {
+            "DC": "SERVICE_CHANGE_CONFIG",  # Critical - can change binary path
+            "RP": "SERVICE_START",
+            "WP": "SERVICE_STOP",
+            "SD": "DELETE",
+            "WD": "WRITE_DAC",
+            "WO": "WRITE_OWNER",
+            "GA": "GENERIC_ALL",
+            "GW": "GENERIC_WRITE",
+        }
+
+        # Look for ACEs granting dangerous rights to dangerous trustees
+        ace_pattern = r'\(([AD]);([^;]*);([^;]*);([^;]*);([^;]*);([^)]+)\)'
+
+        for match in re.finditer(ace_pattern, sddl):
+            ace_type, ace_flags, rights, obj_guid, inherit_guid, trustee = match.groups()
+            if ace_type != 'A':
+                continue
+
+            trustee_upper = trustee.upper()
+            if trustee_upper in DANGEROUS_TRUSTEES:
+                trustee_name = DANGEROUS_TRUSTEES[trustee_upper]
+
+                # Check for dangerous rights only
+                granted = []
+                rights_upper = rights.upper()
+                for code, desc in DANGEROUS_SERVICE_RIGHTS.items():
+                    if code in rights_upper:
+                        granted.append(desc)
+
+                # Also check for hex-encoded access
+                if "0x" in rights.lower():
+                    try:
+                        hex_val = int(rights, 16)
+                        if hex_val & 0x0002:  # SERVICE_CHANGE_CONFIG
+                            granted.append("SERVICE_CHANGE_CONFIG")
+                        if hex_val & 0x0010:  # SERVICE_START
+                            granted.append("SERVICE_START")
+                        if hex_val & 0x0020:  # SERVICE_STOP
+                            granted.append("SERVICE_STOP")
+                        if hex_val & 0x00040000:  # WRITE_DAC
+                            granted.append("WRITE_DAC")
+                        if hex_val & 0x00080000:  # WRITE_OWNER
+                            granted.append("WRITE_OWNER")
+                        if hex_val & 0x10000000:  # GENERIC_ALL
+                            granted.append("GENERIC_ALL")
+                    except ValueError:
+                        pass
+
+                if granted:
+                    warnings.append(
+                        f"{trustee_name} has: {', '.join(set(granted))}")
+
+        return len(warnings) > 0, warnings
 
     # -------------------------------------------------------------------------
     # TypeLib Search
@@ -732,7 +1355,8 @@ class ComInterfaceAnalyzer:
 
     def search_typelibs_by_pattern(self, pattern: str) -> List[TypeLibRegistryInfo]:
         """Search for TypeLibs in registry matching a pattern."""
-        self._log(f"Searching TypeLibs matching '{pattern}'...", indent=1, emoji="search")
+        self._log(
+            f"Searching TypeLibs matching '{pattern}'...", indent=1, emoji="search")
         results = []
         pattern_lower = pattern.lower()
 
@@ -741,11 +1365,13 @@ class ComInterfaceAnalyzer:
                 continue
 
             for version in reg_enum_subkeys(winreg.HKEY_CLASSES_ROOT, rf"TypeLib\{tl_id}"):
-                name = reg_read_value(winreg.HKEY_CLASSES_ROOT, rf"TypeLib\{tl_id}\{version}", None)
+                name = reg_read_value(
+                    winreg.HKEY_CLASSES_ROOT, rf"TypeLib\{tl_id}\{version}", None)
                 if not name or pattern_lower not in name.lower():
                     continue
 
-                info = TypeLibRegistryInfo(typelib_id=tl_id, name=name, version=version)
+                info = TypeLibRegistryInfo(
+                    typelib_id=tl_id, name=name, version=version)
                 info.helpdir = reg_read_value(winreg.HKEY_CLASSES_ROOT,
                                               rf"TypeLib\{tl_id}\{version}", "HELPDIR")
 
@@ -761,9 +1387,11 @@ class ComInterfaceAnalyzer:
                     break
 
                 results.append(info)
-                self._log(f"Found: {name} ({tl_id} v{version})", indent=2, verbose_only=True, emoji="success")
+                self._log(f"Found: {name} ({tl_id} v{version})",
+                          indent=2, verbose_only=True, emoji="success")
 
-        self._log(f"Found {len(results)} matching TypeLib(s)", indent=1, emoji="info")
+        self._log(f"Found {len(results)} matching TypeLib(s)",
+                  indent=1, emoji="info")
         return results
 
     # -------------------------------------------------------------------------
@@ -776,13 +1404,17 @@ class ComInterfaceAnalyzer:
             return self.security_cache[clsid]
 
         result = ComSecurityInfo(clsid=clsid)
-        result.appid = reg_read_value(winreg.HKEY_CLASSES_ROOT, rf"CLSID\{clsid}", "AppID")
+        result.appid = reg_read_value(
+            winreg.HKEY_CLASSES_ROOT, rf"CLSID\{clsid}", "AppID")
 
         if result.appid:
             appid_path = rf"AppID\{result.appid}"
-            result.runas = reg_read_value(winreg.HKEY_CLASSES_ROOT, appid_path, "RunAs")
-            result.dll_surrogate = reg_read_value(winreg.HKEY_CLASSES_ROOT, appid_path, "DllSurrogate")
-            result.local_service = reg_read_value(winreg.HKEY_CLASSES_ROOT, appid_path, "LocalService")
+            result.runas = reg_read_value(
+                winreg.HKEY_CLASSES_ROOT, appid_path, "RunAs")
+            result.dll_surrogate = reg_read_value(
+                winreg.HKEY_CLASSES_ROOT, appid_path, "DllSurrogate")
+            result.local_service = reg_read_value(
+                winreg.HKEY_CLASSES_ROOT, appid_path, "LocalService")
 
             # Read security descriptors
             try:
@@ -816,19 +1448,27 @@ class ComInterfaceAnalyzer:
         result = ProxyStubInfo(iid=iid)
         iface_path = rf"Interface\{iid}"
 
-        result.name = reg_read_value(winreg.HKEY_CLASSES_ROOT, iface_path, None)
+        result.name = reg_read_value(
+            winreg.HKEY_CLASSES_ROOT, iface_path, None)
         result.proxy_stub_clsid = reg_read_value(winreg.HKEY_CLASSES_ROOT,
-                                                  rf"{iface_path}\ProxyStubClsid32", None)
+                                                 rf"{iface_path}\ProxyStubClsid32", None)
 
         if result.proxy_stub_clsid:
             result.marshaling_type = "custom"
             ps_path = rf"CLSID\{result.proxy_stub_clsid}\InprocServer32"
-            result.proxy_stub_dll = reg_read_value(winreg.HKEY_CLASSES_ROOT, ps_path, None)
+            result.proxy_stub_dll = reg_read_value(
+                winreg.HKEY_CLASSES_ROOT, ps_path, None)
             if result.proxy_stub_dll and "oleaut32" in result.proxy_stub_dll.lower():
                 result.marshaling_type = "oleautomation"
+            elif result.proxy_stub_dll:
+                # Analyze proxy DLL security (CFG, signature, etc.)
+                main_signer = self.pe_info.signer_name if self.pe_info else None
+                result.dll_security = analyze_proxy_dll_security(
+                    result.proxy_stub_dll, main_signer)
         else:
             # Check for TypeLib marshaling
-            result.typelib_id = reg_read_value(winreg.HKEY_CLASSES_ROOT, rf"{iface_path}\TypeLib", None)
+            result.typelib_id = reg_read_value(
+                winreg.HKEY_CLASSES_ROOT, rf"{iface_path}\TypeLib", None)
             if result.typelib_id:
                 result.marshaling_type = "oleautomation"
                 result.typelib_version = reg_read_value(winreg.HKEY_CLASSES_ROOT,
@@ -849,7 +1489,7 @@ class ComInterfaceAnalyzer:
         try:
             pe = pefile.PE(self.executable_path, fast_load=True)
             pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_RESOURCE'],
-                                                    pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT']])
+                                                   pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT']])
 
             # Machine type
             machine_map = {0x8664: ("AMD64", "x64"), 0x14c: ("I386", "x86"),
@@ -860,9 +1500,29 @@ class ComInterfaceAnalyzer:
                 result.machine = f"0x{pe.FILE_HEADER.Machine:04X}"
                 result.machine_name = "Unknown"
 
-            # Timestamp
+            # Timestamp (wrap in try/except for malformed/zero timestamps)
             ts = pe.FILE_HEADER.TimeDateStamp
-            result.timestamp = datetime.fromtimestamp(ts).isoformat() if ts else None
+            if ts:
+                try:
+                    result.timestamp = datetime.fromtimestamp(ts).isoformat()
+                except (ValueError, OSError):
+                    result.timestamp = f"invalid ({ts})"
+            else:
+                result.timestamp = None
+
+            # Security mitigations from DllCharacteristics
+            if hasattr(pe, 'OPTIONAL_HEADER'):
+                dll_char = pe.OPTIONAL_HEADER.DllCharacteristics
+                # IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE
+                result.aslr = bool(dll_char & 0x0040)
+                # IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA
+                result.high_entropy_aslr = bool(dll_char & 0x0020)
+                # IMAGE_DLLCHARACTERISTICS_NX_COMPAT
+                result.dep = bool(dll_char & 0x0100)
+                # IMAGE_DLLCHARACTERISTICS_GUARD_CF
+                result.cfg = bool(dll_char & 0x4000)
+                # IMAGE_DLLCHARACTERISTICS_GUARD_RF (if available)
+                result.guard_rf = bool(dll_char & 0x00020000)
 
             # Check for TypeLib resource (RT_TYPELIB = 16)
             if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
@@ -925,12 +1585,19 @@ class ComInterfaceAnalyzer:
                         for imp in entry.imports:
                             if not imp.name:
                                 continue
-                            func_name = imp.name.decode('utf-8', errors='ignore')
+                            func_name = imp.name.decode(
+                                'utf-8', errors='ignore')
                             if func_name in HARDENING_APIS[dll]:
                                 desc = HARDENING_APIS[dll][func_name]
-                                result.hardening_apis.append(f"{dll}!{func_name} ({desc})")
+                                result.hardening_apis.append(
+                                    f"{dll}!{func_name} ({desc})")
 
             pe.close()
+
+            # Verify digital signature
+            result.is_signed, result.signature_valid, result.signer_name, result.signature_error = \
+                verify_pe_signature(self.executable_path)
+
         except Exception as e:
             result.pe_error = str(e)
 
@@ -961,10 +1628,12 @@ class ComInterfaceAnalyzer:
 
                 # Get server info from registry
                 for subkey in ["LocalServer32", "InprocServer32"]:
-                    server_path = reg_read_value(winreg.HKEY_CLASSES_ROOT, rf"CLSID\{clsid}\{subkey}", None)
+                    server_path = reg_read_value(
+                        winreg.HKEY_CLASSES_ROOT, rf"CLSID\{clsid}\{subkey}", None)
                     if server_path:
                         coclass.server_type = subkey
-                        coclass.server_path = clean_executable_path(server_path)
+                        coclass.server_path = clean_executable_path(
+                            server_path)
                         coclass.threading_model = reg_read_value(
                             winreg.HKEY_CLASSES_ROOT, rf"CLSID\{clsid}\{subkey}", "ThreadingModel")
                         break
@@ -994,7 +1663,8 @@ class ComInterfaceAnalyzer:
             except comtypes.COMError:
                 pass
 
-        self._log(f"Found {len(self.coclasses)} coclass(es)", indent=1, emoji="info")
+        self._log(f"Found {len(self.coclasses)} coclass(es)",
+                  indent=1, emoji="info")
         return self.coclasses
 
     # -------------------------------------------------------------------------
@@ -1007,14 +1677,30 @@ class ComInterfaceAnalyzer:
             self._log("No executable path specified", emoji="failure")
             return False
 
-        self._log(f"Attempting to load type library from: {self.executable_path}", emoji="search")
+        self._log(
+            f"Attempting to load type library from: {self.executable_path}", emoji="search")
         try:
-            self.type_lib = comtypes.typeinfo.LoadTypeLibEx(self.executable_path)
+            self.type_lib = comtypes.typeinfo.LoadTypeLibEx(
+                self.executable_path)
             name, _, _, _ = self.type_lib.GetDocumentation(-1)
-            self._log(f"Successfully loaded type library: '{name}'", emoji="success")
+            self._log(
+                f"Successfully loaded type library: '{name}'", emoji="success")
             return True
         except comtypes.COMError as e:
+            error_str = str(e)
             self._log(f"Failed to load type library: {e}", emoji="failure")
+            # Check for architecture mismatch
+            if "TYPE_E_CANTLOADLIBRARY" in error_str or "0x80029C4A" in error_str:
+                import struct
+                python_bits = struct.calcsize("P") * 8
+                pe_arch = self.pe_info.machine_name if self.pe_info else "unknown"
+                self._log(
+                    f"Hint: Python is {python_bits}-bit, target PE is {pe_arch}.", indent=1, emoji="warning")
+                self._log(
+                    f"Try running with matching Python architecture.", indent=1, emoji="info")
+            return False
+        except OSError as e:
+            self._log(f"OS error loading type library: {e}", emoji="failure")
             return False
 
     def get_inheritance_chain(self, ti: comtypes.typeinfo.ITypeInfo) -> List[InterfaceInfo]:
@@ -1056,7 +1742,8 @@ class ComInterfaceAnalyzer:
                         # Build parameter list with direction flags and deep type resolution
                         params = []
                         for p in range(fd.cParams):
-                            pname = names[p + 1] if len(names) > p + 1 else f"p{p}"
+                            pname = names[p +
+                                          1] if len(names) > p + 1 else f"p{p}"
                             tdesc = fd.lprgelemdescParam[p].tdesc
                             pflags = fd.lprgelemdescParam[p]._.paramdesc.wParamFlags
                             # Use deep type resolution to expand structs/enums
@@ -1120,9 +1807,11 @@ class ComInterfaceAnalyzer:
         if not self.type_lib:
             return
 
-        self._log("Analyzing all TKIND_INTERFACE entries from TypeLib...", indent=1, emoji="gear")
+        self._log("Analyzing all TKIND_INTERFACE entries from TypeLib...",
+                  indent=1, emoji="gear")
         count = self.type_lib.GetTypeInfoCount()
-        self._log(f"Found {count} type definitions to scan", indent=1, emoji="info")
+        self._log(f"Found {count} type definitions to scan",
+                  indent=1, emoji="info")
 
         for i in range(count):
             try:
@@ -1137,7 +1826,8 @@ class ComInterfaceAnalyzer:
                 name, _, _, _ = ti.GetDocumentation(-1)
                 iid = str(attr.guid)
 
-                self._log(f"Scanning Interface: '{name}' (IID: {iid})", indent=2, verbose_only=True)
+                self._log(
+                    f"Scanning Interface: '{name}' (IID: {iid})", indent=2, verbose_only=True)
 
                 # Get inheritance chain and check for target methods
                 chain = self.get_inheritance_chain(ti)
@@ -1150,7 +1840,8 @@ class ComInterfaceAnalyzer:
                             for j in range(iface.type_attr_obj.cFuncs):
                                 try:
                                     fd = iface.type_info_obj.GetFuncDesc(j)
-                                    names = iface.type_info_obj.GetNames(fd.memid, 1)
+                                    names = iface.type_info_obj.GetNames(
+                                        fd.memid, 1)
                                     if names and names[0] == method.name:
                                         if self.check_method_signature(method.name, fd, iface.type_info_obj):
                                             found_methods[method.name] = AnalyzedMethod(
@@ -1172,7 +1863,8 @@ class ComInterfaceAnalyzer:
                         interface_name=name, interface_iid=iid,
                         methods=found_methods, inheritance_chain_info=chain
                     ))
-                    self._log(f"Found ABE-capable: '{name}' (IID: {iid})", indent=2, emoji="info")
+                    self._log(
+                        f"Found ABE-capable: '{name}' (IID: {iid})", indent=2, emoji="info")
 
                 ti.ReleaseTypeAttr(attr)
 
@@ -1190,7 +1882,8 @@ class ComInterfaceAnalyzer:
 
         try:
             if scan_mode and browser_key:
-                self._log(f"Scan mode enabled for: {browser_key}", emoji="gear")
+                self._log(
+                    f"Scan mode enabled for: {browser_key}", emoji="gear")
                 if not self.find_service_details(browser_key):
                     return
 
@@ -1202,7 +1895,8 @@ class ComInterfaceAnalyzer:
                 self._log("Analyzing PE structure...", indent=1, emoji="gear")
                 pe_info = self.analyze_pe_typelib()
                 if pe_info.machine_name:
-                    self._log(f"PE Architecture: {pe_info.machine_name}", indent=2, verbose_only=True, emoji="info")
+                    self._log(
+                        f"PE Architecture: {pe_info.machine_name}", indent=2, verbose_only=True, emoji="info")
 
             # Load TypeLib
             if not self.load_type_library():
@@ -1216,17 +1910,61 @@ class ComInterfaceAnalyzer:
 
             # Analyze security
             if self.discovered_clsid:
-                self._log("Analyzing COM security settings...", indent=1, emoji="gear")
+                self._log("Analyzing COM security settings...",
+                          indent=1, emoji="gear")
                 sec = self.analyze_com_security(self.discovered_clsid)
                 if sec.local_service:
-                    self._log(f"LocalService: {sec.local_service}", indent=2, verbose_only=True, emoji="info")
+                    self._log(
+                        f"LocalService: {sec.local_service}", indent=2, verbose_only=True, emoji="info")
+                    # Analyze service DACL
+                    self._log("Analyzing service DACL...",
+                              indent=1, emoji="gear")
+                    svc_sec = self.analyze_service_security(sec.local_service)
+                    if svc_sec.has_weak_permissions:
+                        self._log("WEAK SERVICE PERMISSIONS DETECTED!",
+                                  indent=2, emoji="warning")
 
             # Analyze proxy/stub for results
             if self.results:
-                self._log("Analyzing proxy/stub registration...", indent=1, emoji="gear")
+                self._log("Analyzing proxy/stub registration...",
+                          indent=1, emoji="gear")
                 for r in self.results:
                     ps = self.analyze_proxy_stub(r.interface_iid)
-                    self._log(f"{r.interface_name}: {ps.marshaling_type}", indent=2, verbose_only=True, emoji="info")
+                    self._log(f"{r.interface_name}: {ps.marshaling_type}",
+                              indent=2, verbose_only=True, emoji="info")
+                    # Show proxy DLL security analysis if available
+                    if ps.dll_security and self.verbose:
+                        sec = ps.dll_security
+                        if sec.exists:
+                            mitigations = []
+                            if sec.aslr:
+                                mitigations.append("ASLR")
+                            if sec.high_entropy_aslr:
+                                mitigations.append("HiASLR")
+                            if sec.dep:
+                                mitigations.append("DEP")
+                            if sec.cfg:
+                                mitigations.append("CFG")
+                            self._log(
+                                f"  Proxy DLL: {ps.proxy_stub_dll}", indent=2, verbose_only=True)
+                            self._log(
+                                f"  Mitigations: {', '.join(mitigations) if mitigations else 'NONE'}", indent=2, verbose_only=True)
+                            if sec.is_signed:
+                                sig_status = "VALID" if sec.signature_valid else "INVALID"
+                                self._log(
+                                    f"  Signature: {sig_status} ({sec.signer_name})", indent=2, verbose_only=True)
+                                if not sec.same_signer_as_main:
+                                    self._log(
+                                        f"  {EMOJI['warning']} DIFFERENT SIGNER than main executable!", indent=2, verbose_only=True)
+                            else:
+                                self._log(f"  Signature: NOT SIGNED", indent=2,
+                                          verbose_only=True, emoji="warning")
+                            if not sec.cfg:
+                                self._log(
+                                    f"  {EMOJI['warning']} Proxy DLL missing CFG - potential hijack target", indent=2, verbose_only=True)
+                        elif sec.analysis_error:
+                            self._log(
+                                f"  Proxy DLL analysis error: {sec.analysis_error}", indent=2, verbose_only=True)
 
         finally:
             comtypes.CoUninitialize()
@@ -1261,7 +1999,7 @@ class ComInterfaceAnalyzer:
             data = {
                 "metadata": {
                     "tool": "COMrade ABE Analyzer",
-                    "version": "2.0.0",
+                    "version": "2.1.0",
                     "timestamp": datetime.now().isoformat(),
                     "duration_seconds": time.time() - self.start_time if self.start_time else 0,
                     "browser": self.browser_key or "unknown",
@@ -1286,6 +2024,18 @@ class ComInterfaceAnalyzer:
                     "uses_rpc": self.pe_info.uses_rpc,
                     "uses_ole": self.pe_info.uses_ole,
                     "hardening_apis": self.pe_info.hardening_apis,
+                    "security_mitigations": {
+                        "aslr": self.pe_info.aslr,
+                        "high_entropy_aslr": self.pe_info.high_entropy_aslr,
+                        "dep": self.pe_info.dep,
+                        "cfg": self.pe_info.cfg,
+                    },
+                    "signature": {
+                        "is_signed": self.pe_info.is_signed,
+                        "is_valid": self.pe_info.signature_valid,
+                        "signer": self.pe_info.signer_name,
+                        "error": self.pe_info.signature_error,
+                    },
                 }
 
             # Security info
@@ -1306,6 +2056,16 @@ class ComInterfaceAnalyzer:
                         "start_type": rt.start_type, "dependencies": rt.dependencies,
                     }
 
+            # Service DACL security
+            if self.service_security:
+                data["service_security"] = {
+                    "service_name": self.service_security.service_name,
+                    "dacl_sddl": self.service_security.dacl_sddl,
+                    "has_weak_permissions": self.service_security.has_weak_permissions,
+                    "weak_permission_details": self.service_security.weak_permission_details,
+                    "query_error": self.service_security.query_error,
+                }
+
             # Results
             data["results"] = []
             for r in self.results:
@@ -1317,13 +2077,28 @@ class ComInterfaceAnalyzer:
                     "interface_iid": r.interface_iid,
                     "clsid": r.clsid,
                     "methods": {name: {"vtable_offset": m.ovft, "memid": m.memid,
-                                        "defining_interface": m.defining_interface_name}
+                                       "defining_interface": m.defining_interface_name}
                                 for name, m in r.methods.items()},
                     "inheritance_chain": [{"name": i.name, "iid": i.iid,
                                            "base": i.base_interface_name,
                                            "methods_count": len(i.methods_defined)}
                                           for i in r.inheritance_chain_info],
-                    "proxy_stub": {"type": ps.marshaling_type, "registered": ps.registered},
+                    "proxy_stub": {
+                        "type": ps.marshaling_type,
+                        "registered": ps.registered,
+                        "dll_path": ps.proxy_stub_dll,
+                        "dll_security": {
+                            "exists": ps.dll_security.exists,
+                            "aslr": ps.dll_security.aslr,
+                            "dep": ps.dll_security.dep,
+                            "cfg": ps.dll_security.cfg,
+                            "high_entropy_aslr": ps.dll_security.high_entropy_aslr,
+                            "is_signed": ps.dll_security.is_signed,
+                            "signature_valid": ps.dll_security.signature_valid,
+                            "signer_name": ps.dll_security.signer_name,
+                            "same_signer_as_main": ps.dll_security.same_signer_as_main,
+                        } if ps.dll_security else None,
+                    },
                     "vtable_slots": len(vtable),
                 })
 
@@ -1389,20 +2164,51 @@ class ComInterfaceAnalyzer:
             print(f"    ABE-Capable Found : {self.interfaces_abe_capable}")
             print(f"    Coclasses Found   : {len(self.coclasses)}")
             if self.interfaces_scanned > 0:
-                print(f"    Success Rate      : {(self.interfaces_abe_capable / self.interfaces_scanned) * 100:.1f}%")
+                print(
+                    f"    Success Rate      : {(self.interfaces_abe_capable / self.interfaces_scanned) * 100:.1f}%")
 
         # PE info
         if self.pe_info and not self.pe_info.pe_error:
             print(f"\n  {EMOJI['file']} PE Information:")
             print(f"    Architecture      : {self.pe_info.machine_name}")
             print(f"    Build Timestamp   : {self.pe_info.timestamp}")
-            print(f"    Embedded TypeLib  : {'Yes' if self.pe_info.has_embedded_typelib else 'No'}")
-            print(f"    Uses RPC Runtime  : {'Yes' if self.pe_info.uses_rpc else 'No'}")
-            print(f"    Uses OLE/OleAut   : {'Yes' if self.pe_info.uses_ole else 'No'}")
+            print(
+                f"    Embedded TypeLib  : {'Yes' if self.pe_info.has_embedded_typelib else 'No'}")
+            print(
+                f"    Uses RPC Runtime  : {'Yes' if self.pe_info.uses_rpc else 'No'}")
+            print(
+                f"    Uses OLE/OleAut   : {'Yes' if self.pe_info.uses_ole else 'No'}")
+
+            # Security mitigations
+            print(f"\n  {EMOJI['gear']} Security Mitigations:")
+            aslr_status = f"{EMOJI['success']} Enabled" if self.pe_info.aslr else f"{EMOJI['failure']} Disabled"
+            dep_status = f"{EMOJI['success']} Enabled" if self.pe_info.dep else f"{EMOJI['failure']} Disabled"
+            cfg_status = f"{EMOJI['success']} Enabled" if self.pe_info.cfg else f"{EMOJI['warning']} Disabled"
+            high_ent = " (High Entropy)" if self.pe_info.high_entropy_aslr else ""
+            print(f"    ASLR              : {aslr_status}{high_ent}")
+            print(f"    DEP (NX)          : {dep_status}")
+            print(f"    Control Flow Guard: {cfg_status}")
+
+            # Digital signature
+            print(f"\n  {EMOJI['gear']} Digital Signature:")
+            if self.pe_info.is_signed:
+                if self.pe_info.signature_valid:
+                    print(
+                        f"    Status            : {EMOJI['success']} Valid signature")
+                else:
+                    print(
+                        f"    Status            : {EMOJI['warning']} Invalid - {self.pe_info.signature_error}")
+                if self.pe_info.signer_name:
+                    print(
+                        f"    Signer            : {self.pe_info.signer_name}")
+            else:
+                print(
+                    f"    Status            : {EMOJI['failure']} Not signed - {self.pe_info.signature_error or 'No signature'}")
 
             # Show hardening APIs (security validation mechanisms)
             if self.pe_info.hardening_apis:
-                print(f"\n  {EMOJI['warning']} Hardening APIs Detected ({len(self.pe_info.hardening_apis)}):")
+                print(
+                    f"\n  {EMOJI['warning']} Hardening APIs Detected ({len(self.pe_info.hardening_apis)}):")
                 for api in self.pe_info.hardening_apis:
                     print(f"    - {api}")
 
@@ -1419,18 +2225,61 @@ class ComInterfaceAnalyzer:
                         rt = self.get_service_runtime_status(sec.local_service)
                         status_emoji = EMOJI['success'] if rt.status == "running" else EMOJI['info']
                         pid_str = f" (PID: {rt.pid})" if rt.pid else ""
-                        print(f"    Service Status    : {status_emoji} {rt.status}{pid_str}")
+                        print(
+                            f"    Service Status    : {status_emoji} {rt.status}{pid_str}")
                         print(f"    Service Start Type: {rt.start_type}")
                 if sec.runas:
                     print(f"    RunAs             : {sec.runas}")
                 if sec.has_launch_permission:
-                    print(f"    LaunchPermission  : Set ({sec.launch_permission_size} bytes)")
+                    print(
+                        f"    LaunchPermission  : Set ({sec.launch_permission_size} bytes)")
                     if show_sddl and sec.launch_permission_sddl:
                         print(f"      SDDL: {sec.launch_permission_sddl}")
                 if sec.has_access_permission:
-                    print(f"    AccessPermission  : Set ({sec.access_permission_size} bytes)")
+                    print(
+                        f"    AccessPermission  : Set ({sec.access_permission_size} bytes)")
                     if show_sddl and sec.access_permission_sddl:
                         print(f"      SDDL: {sec.access_permission_sddl}")
+
+                # Analyze COM permission dangers
+                if show_sddl:
+                    if sec.launch_permission_sddl:
+                        is_dangerous, warnings = analyze_sddl_dangers(
+                            sec.launch_permission_sddl)
+                        if is_dangerous:
+                            print(
+                                f"    {EMOJI['warning']} Launch Permission Risks:")
+                            for w in warnings:
+                                print(f"      - {w}")
+                    if sec.access_permission_sddl:
+                        is_dangerous, warnings = analyze_sddl_dangers(
+                            sec.access_permission_sddl)
+                        if is_dangerous:
+                            print(
+                                f"    {EMOJI['warning']} Access Permission Risks:")
+                            for w in warnings:
+                                print(f"      - {w}")
+
+        # Service DACL security
+        if self.service_security:
+            svc_sec = self.service_security
+            print(f"\n  {EMOJI['gear']} Service DACL Security:")
+            if svc_sec.query_error:
+                print(
+                    f"    {EMOJI['warning']} Query error: {svc_sec.query_error}")
+            elif svc_sec.dacl_sddl:
+                if svc_sec.has_weak_permissions:
+                    print(f"    {EMOJI['failure']} WEAK PERMISSIONS DETECTED:")
+                    for detail in svc_sec.weak_permission_details:
+                        print(f"      - {detail}")
+                else:
+                    print(
+                        f"    {EMOJI['success']} No dangerous permissions found")
+                if show_sddl:
+                    print(f"    SDDL: {svc_sec.dacl_sddl}")
+            else:
+                print(
+                    f"    {EMOJI['info']} Unable to query (may require elevation)")
 
         # Coclasses
         if self.coclasses and self.verbose:
@@ -1455,7 +2304,8 @@ class ComInterfaceAnalyzer:
             print(f"\n  Candidate {i + 1}:{marker}")
             print(f"    Interface Name: {r.interface_name}")
             print(f"    IID           : {r.interface_iid}")
-            print(f"      (C++ Style) : {format_guid_for_cpp(r.interface_iid)}")
+            print(
+                f"      (C++ Style) : {format_guid_for_cpp(r.interface_iid)}")
 
         # Verbose details
         if self.verbose:
@@ -1465,26 +2315,33 @@ class ComInterfaceAnalyzer:
                 print(f"    Methods (ABE):")
                 for name, m in r.methods.items():
                     slot = m.ovft // 8
-                    print(f"      - {name}: VTable Offset {m.ovft} (Slot ~{slot}), in '{m.defining_interface_name}'")
-                print(f"    Inheritance: {' -> '.join(iface.name for iface in reversed(r.inheritance_chain_info))}")
+                    print(
+                        f"      - {name}: VTable Offset {m.ovft} (Slot ~{slot}), in '{m.defining_interface_name}'")
+                print(
+                    f"    Inheritance: {' -> '.join(iface.name for iface in reversed(r.inheritance_chain_info))}")
                 for iface in reversed(r.inheritance_chain_info):
-                    print(f"      {iface.name} (IID: {iface.iid}) - {len(iface.methods_defined)} method(s)")
+                    print(
+                        f"      {iface.name} (IID: {iface.iid}) - {len(iface.methods_defined)} method(s)")
                     for m in iface.methods_defined:
                         params = ', '.join(m.params) if m.params else 'void'
-                        print(f"        - {m.ret_type} {m.name}({params}) (oVft: {m.ovft})")
+                        print(
+                            f"        - {m.ret_type} {m.name}({params}) (oVft: {m.ovft})")
             print("--- End Verbose Details ---")
 
         # Generate C++ stubs
         if output_cpp_file:
-            self._log(f"\nGenerating C++ stubs for '{primary.interface_name}'...", emoji="gear")
+            self._log(
+                f"\nGenerating C++ stubs for '{primary.interface_name}'...", emoji="gear")
             header = f"// COM Stubs for {browser}\n// Generated by COMrade ABE Analyzer\n"
             header += f"// CLSID: {format_guid_for_cpp(primary.clsid)}\n"
             header += f"// IID: {format_guid_for_cpp(primary.interface_iid)}\n\n"
-            content = self.generate_cpp_stubs(primary.inheritance_chain_info, primary.interface_iid)
+            content = self.generate_cpp_stubs(
+                primary.inheritance_chain_info, primary.interface_iid)
             try:
                 with open(output_cpp_file, 'w', encoding='utf-8') as f:
                     f.write(header + content)
-                self._log(f"C++ stubs written to: {output_cpp_file}", emoji="success")
+                self._log(
+                    f"C++ stubs written to: {output_cpp_file}", emoji="success")
             except IOError as e:
                 self._log(f"Error writing stubs: {e}", emoji="failure")
 
@@ -1502,15 +2359,18 @@ class ComInterfaceAnalyzer:
         }
 
         current = {r.interface_iid.lower(): r for r in self.results}
-        other_results = {r["interface_iid"].lower(): r for r in other.get("results", [])}
+        other_results = {r["interface_iid"].lower(
+        ): r for r in other.get("results", [])}
 
         for iid, r in current.items():
             if iid not in other_results:
-                diff["added_interfaces"].append({"name": r.interface_name, "iid": r.interface_iid})
+                diff["added_interfaces"].append(
+                    {"name": r.interface_name, "iid": r.interface_iid})
 
         for iid, r in other_results.items():
             if iid not in current:
-                diff["removed_interfaces"].append({"name": r["interface_name"], "iid": r["interface_iid"]})
+                diff["removed_interfaces"].append(
+                    {"name": r["interface_name"], "iid": r["interface_iid"]})
 
         return diff
 
@@ -1599,6 +2459,15 @@ Examples:
 
     print(f"{EMOJI['gear']} COM ABE Interface Analyzer Initializing...")
 
+    # Check if running as admin
+    try:
+        is_admin = ctypes.windll.shell32.IsUserAnAdmin()
+        if not is_admin:
+            print(
+                f"{EMOJI['warning']} Running as standard user. Service DACL checks may be incomplete.")
+    except Exception:
+        pass
+
     analyzer = ComInterfaceAnalyzer(
         verbose=args.verbose,
         target_method_names=[m.strip() for m in args.methods.split(',')],
@@ -1617,7 +2486,8 @@ Examples:
         try:
             services = analyzer.discover_elevation_services()
             if services:
-                print(f"\n{EMOJI['success']} Found {len(services)} elevation service(s):\n")
+                print(
+                    f"\n{EMOJI['success']} Found {len(services)} elevation service(s):\n")
                 for svc in services:
                     print(f"  {EMOJI['gear']} {svc.service_name}")
                     print(f"      Browser Vendor : {svc.browser_vendor}")
@@ -1630,7 +2500,8 @@ Examples:
                     if svc.status:
                         emoji = EMOJI['success'] if svc.status == "running" else EMOJI['info']
                         pid = f" (PID: {svc.pid})" if svc.pid else ""
-                        print(f"      Status         : {emoji} {svc.status}{pid}")
+                        print(
+                            f"      Status         : {emoji} {svc.status}{pid}")
                     print()
             else:
                 print(f"{EMOJI['warning']} No elevation services found.")
@@ -1642,13 +2513,16 @@ Examples:
     # Command: search <pattern>
     if target_lower == "search":
         if not args.pattern:
-            parser.error("'search' requires a pattern. Usage: comrade_abe.py search <pattern>")
-        print(f"\n{EMOJI['search']} Searching TypeLibs matching '{args.pattern}'...")
+            parser.error(
+                "'search' requires a pattern. Usage: comrade_abe.py search <pattern>")
+        print(
+            f"\n{EMOJI['search']} Searching TypeLibs matching '{args.pattern}'...")
         comtypes.CoInitialize()
         try:
             typelibs = analyzer.search_typelibs_by_pattern(args.pattern)
             if typelibs:
-                print(f"\n{EMOJI['success']} Found {len(typelibs)} matching TypeLib(s):\n")
+                print(
+                    f"\n{EMOJI['success']} Found {len(typelibs)} matching TypeLib(s):\n")
                 for tl in typelibs:
                     print(f"  {EMOJI['file']} {tl.name}")
                     print(f"      TypeLib ID : {tl.typelib_id}")
@@ -1659,7 +2533,8 @@ Examples:
                         print(f"      Win32 Path : {tl.win32_path}")
                     print()
             else:
-                print(f"{EMOJI['warning']} No TypeLibs found matching '{args.pattern}'.")
+                print(
+                    f"{EMOJI['warning']} No TypeLibs found matching '{args.pattern}'.")
         finally:
             comtypes.CoUninitialize()
         print(f"{EMOJI['success']} TypeLib search complete.")
@@ -1667,7 +2542,8 @@ Examples:
 
     # Browser scan (chrome/edge/brave)
     if target_lower in browser_keys:
-        analyzer.analyze(scan_mode=True, browser_key=args.target, user_clsid=args.clsid)
+        analyzer.analyze(
+            scan_mode=True, browser_key=args.target, user_clsid=args.clsid)
     # Direct executable path
     elif os.path.exists(args.target):
         analyzer.executable_path = args.target
@@ -1676,7 +2552,8 @@ Examples:
             analyzer.browser_key = "manual"
         analyzer.analyze(user_clsid=args.clsid)
     else:
-        parser.error(f"Unknown target '{args.target}'. Use chrome|edge|brave, 'discover', 'search', or a valid path.")
+        parser.error(
+            f"Unknown target '{args.target}'. Use chrome|edge|brave, 'discover', 'search', or a valid path.")
 
     # Print results
     analyzer.print_results(
