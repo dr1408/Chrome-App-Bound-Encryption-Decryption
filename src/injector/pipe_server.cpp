@@ -118,12 +118,20 @@ namespace Injector {
                     console.ProfileHeader(msg.substr(8));
                     m_stats.profiles++;
                 }
-                else if (msg.rfind("KEY:", 0) == 0) {
-                    console.KeyDecrypted(msg.substr(4));
+                else if (msg.rfind("APP_KEY:", 0) == 0) {
+                    console.KeyDecrypted(msg.substr(8));
+                    m_stats.hasAppKey = true;
+                    m_stats.noAbe = false;  // Clear since we have a key
                 }
-                else if (msg.rfind("NO_ABE:", 0) == 0) {
-                    console.NoAbeWarning(msg.substr(7));
+                else if (msg.rfind("OS_KEY:", 0) == 0) {
+                    console.OsKeyDecrypted(msg.substr(7));
+                    m_stats.hasOsKey = true;
+                    m_stats.noAbe = false;  // Clear since we have a key
+                }
+                else if (msg.rfind("NO_KEYS:", 0) == 0) {
+                    console.Error("No usable encryption keys found: " + msg.substr(8));
                     m_stats.noAbe = true;
+                    // hasAppKey and hasOsKey remain false (default)
                 }
                 else if (msg.rfind("ASTER_KEY:", 0) == 0) {
                     console.AsterKeyDecrypted(msg.substr(10));
@@ -279,6 +287,11 @@ namespace Injector {
                 }
             }
             accumulated.erase(0, start);
+        }
+
+        // Show key summary after processing all messages
+        if (m_stats.hasAppKey || m_stats.hasOsKey) {
+            console.KeySummary(m_stats.hasAppKey, m_stats.hasOsKey);
         }
     }
 
