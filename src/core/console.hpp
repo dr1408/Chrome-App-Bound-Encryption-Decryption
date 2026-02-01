@@ -158,34 +158,62 @@ namespace Core {
         // Detailed data display methods (only in verbose mode)
         // Note: Values are already unescaped and decoded by pipe_server.cpp
         void DisplayCookie(const std::string& domain, const std::string& name, 
-                         const std::string& value, const std::string& expires, 
-                         bool secure, bool httpOnly, const std::string& path) const {
-            if (m_verbose) {
-                // Value is already decoded from Base64 by pipe_server.cpp
-                
-                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-                std::cout << "  │   ├─ ";
-                SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-                // Domain: 30 chars (usually enough for domain names)
-                std::cout << std::left << std::setw(30) << (domain.length() > 30 ? domain.substr(0, 27) + "..." : domain);
-                SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-                // NAME: 90 chars (was 40)
-                std::cout << " » " << (name.length() > 90 ? name.substr(0, 87) + "..." : name) << std::endl;
-                
-                // Show all cookie fields - Using "Yes"/"No" instead of symbols
-                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-                std::cout << "  │   │  Path: " << path;
-                std::cout << " | Secure: " << (secure ? "Yes" : "No");
-                std::cout << " | HttpOnly: " << (httpOnly ? "Yes" : "No");
-                std::cout << " | Expires: " << expires << std::endl;
-                
-                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-                std::cout << "  │   │  Value: ";
-                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-                // VALUE: 700 chars (was 200)
-                std::cout << (value.length() > 700 ? value.substr(0, 697) + "..." : value) << std::endl;
+                   const std::string& value, const std::string& expires, 
+                   bool secure, bool httpOnly, const std::string& path) const {
+    if (m_verbose) {
+        // Value is already decoded from Base64 by pipe_server.cpp
+        
+        // CHECK FOR BINARY DATA
+        bool isBinary = false;
+        for (unsigned char c : value) {
+            if (c < 32 && c != '\n' && c != '\t' && c != '\r') {
+                isBinary = true;
+                break;
             }
         }
+        
+        // PREPARE DISPLAY VALUE
+        std::string displayValue;
+        if (isBinary) {
+            // Hex encode binary values
+            static const char hex[] = "0123456789ABCDEF";
+            for (unsigned char c : value) {
+                displayValue += hex[c >> 4];
+                displayValue += hex[c & 0xF];
+            }
+            displayValue += " [HEX]";
+        } else {
+            displayValue = value;
+        }
+        
+        // TRUNCATE IF TOO LONG
+        if (displayValue.length() > 700) {
+            displayValue = displayValue.substr(0, 697) + "...";
+        }
+        
+        SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+        std::cout << "  │   ├─ ";
+        SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+        // Domain: 30 chars (usually enough for domain names)
+        std::cout << std::left << std::setw(30) << (domain.length() > 30 ? domain.substr(0, 27) + "..." : domain);
+        SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+        // NAME: 90 chars (was 40)
+        std::cout << " » " << (name.length() > 90 ? name.substr(0, 87) + "..." : name) << std::endl;
+        
+        // Show all cookie fields - Using "Yes"/"No" instead of symbols
+        SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+        std::cout << "  │   │  Path: " << path;
+        std::cout << " | Secure: " << (secure ? "Yes" : "No");
+        std::cout << " | HttpOnly: " << (httpOnly ? "Yes" : "No");
+        std::cout << " | Expires: " << expires << std::endl;
+        
+        SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+        std::cout << "  │   │  Value: ";
+        SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+        // Use the sanitized displayValue
+        std::cout << displayValue << std::endl;
+    }
+}
 
         void DisplayPassword(const std::string& url, const std::string& username, 
                            const std::string& password) const {
