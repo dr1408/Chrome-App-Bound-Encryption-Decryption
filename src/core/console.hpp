@@ -198,60 +198,60 @@ namespace Core {
         void DisplayCookie(const std::string& domain, const std::string& name, 
                    const std::string& value, const std::string& expires, 
                    bool secure, bool httpOnly, const std::string& path) const {
-    if (m_verbose) {
-        // Value is already decoded from Base64 by pipe_server.cpp
-        
-        // CHECK FOR BINARY DATA
-        bool isBinary = false;
-        for (unsigned char c : value) {
-            if (c < 32 && c != '\n' && c != '\t' && c != '\r') {
-                isBinary = true;
-                break;
+            if (m_verbose) {
+                // Value is already decoded from Base64 by pipe_server.cpp
+                
+                // CHECK FOR BINARY DATA
+                bool isBinary = false;
+                for (unsigned char c : value) {
+                    if (c < 32 && c != '\n' && c != '\t' && c != '\r') {
+                        isBinary = true;
+                        break;
+                    }
+                }
+                
+                // PREPARE DISPLAY VALUE
+                std::string displayValue;
+                if (isBinary) {
+                    // Hex encode binary values
+                    static const char hex[] = "0123456789ABCDEF";
+                    for (unsigned char c : value) {
+                        displayValue += hex[c >> 4];
+                        displayValue += hex[c & 0xF];
+                    }
+                    displayValue += " [HEX]";
+                } else {
+                    displayValue = value;
+                }
+                
+                // TRUNCATE IF TOO LONG
+                if (displayValue.length() > 700) {
+                    displayValue = displayValue.substr(0, 697) + "...";
+                }
+                
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << "  │   ├─ ";
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+                // Domain: 30 chars (usually enough for domain names)
+                std::cout << std::left << std::setw(30) << (domain.length() > 30 ? domain.substr(0, 27) + "..." : domain);
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                // NAME: 90 chars (was 40)
+                std::cout << " » " << (name.length() > 90 ? name.substr(0, 87) + "..." : name) << std::endl;
+                
+                // Show all cookie fields - Using "Yes"/"No" instead of symbols
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << "  │   │  Path: " << path;
+                std::cout << " | Secure: " << (secure ? "Yes" : "No");
+                std::cout << " | HttpOnly: " << (httpOnly ? "Yes" : "No");
+                std::cout << " | Expires: " << expires << std::endl;
+                
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << "  │   │  Value: ";
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                // Use the sanitized displayValue
+                std::cout << displayValue << std::endl;
             }
         }
-        
-        // PREPARE DISPLAY VALUE
-        std::string displayValue;
-        if (isBinary) {
-            // Hex encode binary values
-            static const char hex[] = "0123456789ABCDEF";
-            for (unsigned char c : value) {
-                displayValue += hex[c >> 4];
-                displayValue += hex[c & 0xF];
-            }
-            displayValue += " [HEX]";
-        } else {
-            displayValue = value;
-        }
-        
-        // TRUNCATE IF TOO LONG
-        if (displayValue.length() > 700) {
-            displayValue = displayValue.substr(0, 697) + "...";
-        }
-        
-        SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-        std::cout << "  │   ├─ ";
-        SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-        // Domain: 30 chars (usually enough for domain names)
-        std::cout << std::left << std::setw(30) << (domain.length() > 30 ? domain.substr(0, 27) + "..." : domain);
-        SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-        // NAME: 90 chars (was 40)
-        std::cout << " » " << (name.length() > 90 ? name.substr(0, 87) + "..." : name) << std::endl;
-        
-        // Show all cookie fields - Using "Yes"/"No" instead of symbols
-        SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-        std::cout << "  │   │  Path: " << path;
-        std::cout << " | Secure: " << (secure ? "Yes" : "No");
-        std::cout << " | HttpOnly: " << (httpOnly ? "Yes" : "No");
-        std::cout << " | Expires: " << expires << std::endl;
-        
-        SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-        std::cout << "  │   │  Value: ";
-        SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-        // Use the sanitized displayValue
-        std::cout << displayValue << std::endl;
-    }
-}
 
         void DisplayPassword(const std::string& url, const std::string& username, 
                            const std::string& password) const {
@@ -326,8 +326,47 @@ namespace Core {
             }
         }
 
-        // Summary line
-        void Summary(int cookies, int passwords, int cards, int ibans, int tokens, int profiles, const std::string& outputPath) const {
+        // NEW: Autofill display method
+        void DisplayAutofill(const std::string& fieldName, const std::string& value) const {
+            if (m_verbose) {
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << "  │   ├─ ";
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+                // Field name: 50 chars (usually enough for field names)
+                std::cout << std::left << std::setw(50) << (fieldName.length() > 50 ? fieldName.substr(0, 47) + "..." : fieldName);
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                // Value: 100 chars (autofill values can be long)
+                std::cout << " » " << (value.length() > 100 ? value.substr(0, 97) + "..." : value) << std::endl;
+            }
+        }
+
+        // NEW: History display method
+        void DisplayHistory(const std::string& url, const std::string& title, 
+                          int visitCount, const std::string& lastVisitTime) const {
+            if (m_verbose) {
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << "  │   ├─ ";
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+                // URL: 900 chars 
+                std::cout << std::left << std::setw(900) << (url.length() > 900 ? url.substr(0, 897) + "..." : url);
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                // Title: 300 chars 
+                std::cout << " » " << (title.length() > 300 ? title.substr(0, 297) + "..." : title) << std::endl;
+                
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << "  │   │  Visits: ";
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                std::cout << visitCount;
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+                std::cout << " | Last Visit: ";
+                SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                std::cout << lastVisitTime << std::endl;
+            }
+        }
+
+        // Summary line - UPDATED to include autofill and history
+        void Summary(int cookies, int passwords, int cards, int ibans, int tokens, 
+                    int autofill, int history, int profiles, const std::string& outputPath) const {
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
             std::cout << "  │" << std::endl;
             std::cout << "  └── ";
@@ -339,6 +378,8 @@ namespace Core {
             if (cards > 0) parts.push_back(std::to_string(cards) + " cards");
             if (ibans > 0) parts.push_back(std::to_string(ibans) + " IBANs");
             if (tokens > 0) parts.push_back(std::to_string(tokens) + " tokens");
+            if (autofill > 0) parts.push_back(std::to_string(autofill) + " autofill");
+            if (history > 0) parts.push_back(std::to_string(history) + " history");
             
             for (size_t i = 0; i < parts.size(); i++) {
                 std::cout << parts[i];
@@ -370,7 +411,7 @@ _________ .__                         ___________.__                       __
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
             std::cout << Core::BUILD_TAG;
             SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-            std::cout << " by @xaitax" << std::endl;
+            std::cout << " by @xaitax:@dr_1408 Edition" << std::endl;
             SetConsoleTextAttribute(m_hConsole, m_origAttrs);
         }
 

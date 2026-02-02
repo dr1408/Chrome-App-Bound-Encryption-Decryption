@@ -70,9 +70,10 @@ void ProcessBrowser(const BrowserInfo& browser, bool verbose, bool fingerprint, 
         if (pStats.noAbe) {
             // ABE not enabled - not a failure, just skip
             stats.skipped++;
-        } else if (pStats.cookies > 0 || pStats.passwords > 0 || pStats.cards > 0 || pStats.ibans > 0 || pStats.tokens > 0) {
+        } else if (pStats.cookies > 0 || pStats.passwords > 0 || pStats.cards > 0 || 
+                   pStats.ibans > 0 || pStats.tokens > 0 || pStats.autofill > 0 || pStats.history > 0) {
             console.Summary(pStats.cookies, pStats.passwords, pStats.cards, pStats.ibans, pStats.tokens,
-                           pStats.profiles, (output / browser.displayName).string());
+                           pStats.autofill, pStats.history, pStats.profiles, (output / browser.displayName).string());
             stats.successful++;
         } else {
             console.Warn("No data extracted");

