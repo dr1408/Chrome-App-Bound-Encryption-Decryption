@@ -2,10 +2,20 @@
 
 ## 🆕 Changelog
 
+### v0.19
+
+* ** output to disk vs fileless console extraction : now is up to user selection.
+
+* ** browser fingerprint now output to console only
+
+* ** Added history and autofill extraction
+
 ### v0.18.2
 
 * **Bug Fix: Profile Processing Crash**: Fixed a crash that occurred during profile enumeration on certain systems.
   * Removed the non-essential folder size calculation to eliminate this crash vector entirely.
+
+* ** Added v10/v11 password extraction for edge browser.
 
 ### v0.18.1
 

