@@ -170,7 +170,7 @@ namespace Core {
             if (m_verbose) {
                 SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
                 std::cout << "  │   ";
-                std::cout << std::left << std::setw(12) << key;
+                std::cout << std::left << std::setw(30) << key << ": ";
                 SetConsoleTextAttribute(m_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
                 std::cout << value << std::endl;
                 SetConsoleTextAttribute(m_hConsole, m_origAttrs);

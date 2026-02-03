@@ -18,10 +18,10 @@ namespace Payload {
         : m_pipe(pipe), m_appKey(keys.appKey), m_osKey(keys.osKey), m_outputBase(outputBase) {
         
         if (m_appKey) {
-            m_pipe.LogDebug("DataExtractor: App key available (" + std::to_string(m_appKey->size()) + " bytes)");
+            //m_pipe.LogDebug("DataExtractor: App key available (" + std::to_string(m_appKey->size()) + " bytes)");
         }
         if (m_osKey) {
-            m_pipe.LogDebug("DataExtractor: OS key available (" + std::to_string(m_osKey->size()) + " bytes)");
+            //m_pipe.LogDebug("DataExtractor: OS key available (" + std::to_string(m_osKey->size()) + " bytes)");
         }
         if (!m_appKey && !m_osKey) {
             m_pipe.LogDebug("DataExtractor: WARNING - No keys available!");
