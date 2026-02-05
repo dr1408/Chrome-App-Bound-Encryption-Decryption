@@ -40,14 +40,35 @@ namespace Injector {
     }
 
     void ProcessManager::CheckArchitecture() {
-        USHORT processArch = 0, nativeMachine = 0;
-        auto fnIsWow64Process2 = (decltype(&IsWow64Process2))GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "IsWow64Process2");
-        
-        if (!fnIsWow64Process2 || !fnIsWow64Process2(m_hProcess.get(), &processArch, &nativeMachine)) {
-            throw std::runtime_error("Failed to determine target architecture");
+        // Read PE header directly from executable - IsWow64Process2 doesn't work correctly
+        // for x64 processes running under emulation on ARM64 Windows (returns 0 for processArch)
+        HANDLE hFile = CreateFileW(m_browser.fullPath.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                                   nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (hFile == INVALID_HANDLE_VALUE) {
+            throw std::runtime_error("Failed to open executable for architecture check");
         }
 
-        m_arch = (processArch == IMAGE_FILE_MACHINE_UNKNOWN) ? nativeMachine : processArch;
+        IMAGE_DOS_HEADER dosHeader{};
+        DWORD bytesRead = 0;
+        if (!ReadFile(hFile, &dosHeader, sizeof(dosHeader), &bytesRead, nullptr) ||
+            dosHeader.e_magic != IMAGE_DOS_SIGNATURE) {
+            CloseHandle(hFile);
+            throw std::runtime_error("Invalid PE: bad DOS signature");
+        }
+
+        SetFilePointer(hFile, dosHeader.e_lfanew, nullptr, FILE_BEGIN);
+        DWORD ntSig = 0;
+        ReadFile(hFile, &ntSig, sizeof(ntSig), &bytesRead, nullptr);
+        if (ntSig != IMAGE_NT_SIGNATURE) {
+            CloseHandle(hFile);
+            throw std::runtime_error("Invalid PE: bad NT signature");
+        }
+
+        IMAGE_FILE_HEADER fileHeader{};
+        ReadFile(hFile, &fileHeader, sizeof(fileHeader), &bytesRead, nullptr);
+        CloseHandle(hFile);
+
+        m_arch = fileHeader.Machine;
 
         // Architecture names for human-readable errors
         auto GetArchName = [](USHORT arch) -> std::string {

@@ -2,6 +2,23 @@
 
 ## 🆕 Changelog
 
+### v0.20.0
+
+* **Critical Stealth Fix: Bootstrap Direct Syscalls** (thanks [@wrapdavid](https://github.com/wrapdavid) for the sharp-eyed report!): The reflective loader's bootstrap now correctly invokes direct syscalls for `NtAllocateVirtualMemory` and `NtProtectVirtualMemory` through the linked `SyscallTrampoline` assembly function.
+  * The bootstrap now calls the `SyscallTrampoline` assembly used by the injector stage, with a `SyscallEntry` struct layout matching the ASM expectations (gadget pointer at offset 0, arg count at offset 8, SSN at offset 12).
+  * All `VirtualAlloc`/`VirtualProtect` fallback code has been permanently removed. The bootstrap now operates exclusively through direct syscalls.
+
+* **Avast Secure Browser Support**: Added full App-Bound Encryption decryption support for Avast Secure Browser.
+  * Avast's `IElevatorChrome` COM interface has 12 methods (vs Chrome's 3), with `DecryptData` at vtable slot 13 (offset 104 bytes).
+  * New `IAvastElevator` COM interface definition with complete vtable layout.
+  * Browser discovery via Windows Registry with standard and WOW6432Node paths.
+  * Correctly routes Avast through the `IAvastElevator` COM path for vtable-compatible DecryptData invocation.
+  * Use `chromelevator.exe avast` or include in `all` scan.
+
+* **Architecture Detection Fix**: Replaced `IsWow64Process2`-based architecture detection with direct PE header reading.
+  * `IsWow64Process2` returns incorrect results for x64 processes running under emulation on ARM64 Windows (reports `processArch = 0`), causing the tool to misidentify the target architecture.
+  * Now reads the PE file header's `Machine` field directly from the browser executable, which is always accurate regardless of emulation layer.
+  
 ### v0.19
 
 * ** output to disk vs fileless console extraction : now is up to user selection.

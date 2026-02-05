@@ -21,9 +21,9 @@ This tool's effectiveness is rooted in a combination of modern, evasion-focused 
 
 - **Direct Syscall-Based Process Hollowing:** A stealthy process creation and injection technique. Instead of injecting into a high-traffic, potentially monitored process, it creates a new, suspended host process. This significantly reduces the chances of detection, as all memory manipulations occur before the process begins normal execution.
 
-- **Fileless In-Memory Payload:** The payload DLL never touches the disk on the target machine. It is stored encrypted within the injector using **ChaCha20** with **compile-time derived keys**, decrypted in-memory, and reflectively loaded, minimizing its forensic footprint and bypassing static file-based scanners.
+- **Fileless In-Memory Payload:** The payload DLL never touches the disk on the target machine. It is embedded as a **ChaCha20-encrypted** compile-time byte array with **compile-time derived keys**, decrypted in-memory, and reflectively loaded, minimizing its forensic footprint and bypassing static file-based scanners.
 
-- **Reflective DLL Injection (RDI):** A stealthy process injection method that circumvents `LoadLibrary`, thereby evading detection mechanisms that monitor module loads. The self-contained C loader resolves all of its own dependencies from memory.
+- **Reflective DLL Injection (RDI):** A stealthy process injection method that circumvents `LoadLibrary` for the main payload, thereby evading detection mechanisms that monitor module loads. The self-contained bootstrap loader maps PE sections, performs relocations, and resolves imports from memory.
 
 - **Target-Context COM Invocation:** The lynchpin for defeating App-Bound Encryption. By executing code _within_ the trusted browser process, we inherit its identity and security context, allowing us to make legitimate-appearing calls to the ABE COM server and satisfy its path-validation security checks.
 
@@ -38,7 +38,7 @@ This tool's effectiveness is rooted in a combination of modern, evasion-focused 
 
 ### Stealth & Evasion
 
-- 🛡️ **Fileless Payload Delivery:** In-memory decryption and injection of an encrypted resource.
+- 🛡️ **Fileless Payload Delivery:** In-memory decryption and injection of an encrypted embedded payload.
 - 🛡️ **Direct Syscall Engine:** Bypasses common endpoint defenses by avoiding hooked user-land APIs for all process operations.
 - 🛡️ **Hash-Based Syscall Resolution:** No plaintext `Nt*`/`Zw*` function names in binary—uses compile-time DJB2 hashes.
 - 🛡️ **Compile-Time Key Derivation:** Encryption keys derived from build metadata, unique per build.
@@ -46,12 +46,12 @@ This tool's effectiveness is rooted in a combination of modern, evasion-focused 
 - 🛡️ **IPC Mimicry:** Browser-specific named pipe patterns that blend with legitimate browser IPC traffic.
 - 🤫 **Process Hollowing:** Creates a benign, suspended host process for the payload, avoiding injection into potentially monitored processes.
 - 👻 **Reflective DLL Injection:** Stealthily loads the payload without suspicious `LoadLibrary` calls.
-- 🔒 **Proactive File-Lock Mitigation:** Automatically terminates browser utility processes that hold locks on target database files.
+- 🔒 **Non-Intrusive File-Lock Bypass:** Uses syscall-based handle duplication to access locked SQLite databases without terminating browser processes. Optional `--kill` flag available for full process termination.
 - 💼 **No Admin Privileges Required:** Operates entirely within the user's security context.
 
 ### Compatibility & Usability
 
-- 🌐 Works on **Google Chrome**, **Brave**, & **Edge**.
+- 🌐 Works on **Google Chrome**, **Brave**, **Edge**, & **Avast Secure Browser**.
 - 💻 Natively supports **x64** and **ARM64** architectures.
 - 🚀 **Standalone Operation:** Automatically creates a new browser process to host the payload, requiring no pre-existing running instances.
 - 📁 Customizable output directory for extracted data.
@@ -61,26 +61,27 @@ This tool's effectiveness is rooted in a combination of modern, evasion-focused 
 
 ## 📦 Supported & Tested Versions
 
-| Browser                 | Tested Version (x64 & ARM64) |
-| ----------------------- | ---------------------------- |
-| **Google Chrome**       | 144.0.7559.97                |
-| **Google Chrome Beta**  | 145.0.7632.18                |
-| **Brave**               | 1.86.142 (144.0.7559.97)     |
-| **Microsoft Edge**      | 144.0.3719.92                |
+| Browser                    | Tested Version (x64 & ARM64) |
+| -------------------------- | ---------------------------- |
+| **Google Chrome**          | 144.0.7559.133               |
+| **Google Chrome Beta**     | 145.0.7632.18                |
+| **Brave**                  | 1.86.148 (144.1.86.148)      |
+| **Microsoft Edge**         | 145.0.3800.36                |
+| **Avast Secure Browser**   | 143.0.33371.147              |
 
-> **Note:** Chrome/Brave/Edge 144+ use the new `IElevator2` COM interface. This tool automatically uses `IElevator2` when available and falls back to `IElevator` for older versions.
+> **Note:** Chrome/Brave/Edge 144+ use the new `IElevator2` COM interface. This tool automatically uses `IElevator2` when available and falls back to `IElevator` for older versions. Avast Secure Browser uses a custom `IElevatorChrome` interface with an extended vtable (12 methods, DecryptData at offset 104).
 
 ## 🔍 Feature Support Matrix
 
 This matrix outlines the extraction capabilities for each supported browser.
 
-| Feature              | Google Chrome          | Microsoft Edge                  | Brave                          |
-|----------------------|------------------------|------------------------|-----------------------------------------|
-| **Cookies**         | ✅ ABE                | ✅ ABE                | ✅ ABE                                 |
-| **Passwords**       | ✅ ABE                | ✅ ABE                | ✅ ABE                                 |
-| **Payment Methods** | ✅ ABE                | ✅ ABE                | ✅ ABE                                 |
-| **IBANs**           | ✅ ABE                | ❌ N/A                | ✅ ABE                                 |
-| **Auth Tokens**     | ✅ Google             | ❌ N/A                | ❌ N/A                                 |
+| Feature              | Google Chrome          | Microsoft Edge         | Brave                  | Avast Secure Browser   |
+|----------------------|------------------------|------------------------|------------------------|------------------------|
+| **Cookies**         | ✅ ABE                | ✅ ABE                | ✅ ABE                | ✅ ABE                |
+| **Passwords**       | ✅ ABE                | ✅ ABE                | ✅ ABE                | ✅ ABE                |
+| **Payment Methods** | ✅ ABE                | ✅ ABE                | ✅ ABE                | ✅ ABE                |
+| **IBANs**           | ✅ ABE                | ❌ N/A                | ✅ ABE                | ✅ ABE                |
+| **Auth Tokens**     | ✅ Google             | ❌ N/A                | ❌ N/A                | ❌ N/A                |
 
 ## 🔬 Technical Workflow
 
@@ -88,8 +89,8 @@ The tool's execution is focused on stealth and efficiency, built around a **Dire
 
 ### **Stage 1: The Injector (`chromelevator.exe`)**
 
-1.  **Pre-Flight & Initialization:** The injector begins by initializing its **direct syscall engine**, dynamically parsing `ntdll.dll` to resolve syscall numbers (SSNs) using hash-based matching and locate kernel transition gadgets (`syscall/ret` or `svc/ret`). It then performs a critical pre-flight check, using `NtGetNextProcess` and other syscalls to find and terminate any browser "network service" child processes. This preemptively releases file locks on the target SQLite databases.
-2.  **Payload Preparation:** The core payload DLL, which is stored as a **ChaCha20-encrypted resource** with compile-time derived keys, is loaded and decrypted entirely in-memory.
+1.  **Pre-Flight & Initialization:** The injector begins by initializing its **direct syscall engine**, dynamically parsing `ntdll.dll` to resolve syscall numbers (SSNs) using hash-based matching and locate kernel transition gadgets (`syscall/ret` or `svc/ret`). If the `--kill` flag is specified, it uses `NtGetNextProcess` and `NtTerminateProcess` syscalls to terminate all running instances of the target browser, releasing file locks on SQLite databases.
+2.  **Payload Preparation:** The core payload DLL, which is embedded as a **ChaCha20-encrypted** compile-time byte array with compile-time derived keys, is decrypted entirely in-memory.
 3.  **Process Hollowing:** Instead of targeting an existing process, the injector creates a new instance of the target browser in a **`CREATE_SUSPENDED`** state (`CreateProcessW`). This pristine, suspended process serves as the host for our payload.
 4.  **Reflective Injection via Syscalls:** Using the direct syscall engine, the injector performs a series of stealthy actions on the suspended process:
     - It allocates memory using `NtAllocateVirtualMemory` (direct syscall).
@@ -108,14 +109,14 @@ The tool's execution is focused on stealth and efficiency, built around a **Dire
     - **Destroys PE headers** by overwriting DOS/NT headers with pseudo-random data, eliminating MZ signature from memory.
     - Finally, invokes the payload's `DllMain`.
 2.  **Connection & Setup:** The `DllMain` spawns a new thread that immediately connects to the named pipe handle passed by the injector. It reads the configuration, including the output path, sent by the injector. All subsequent logs and status updates are relayed back through this pipe.
-3.  **Target-Context COM Hijack:** Now running natively within the browser process, the payload instantiates the browser's internal COM server (`IElevator2` for Chrome 144+, `IElevator` for earlier versions, or `IEdgeElevatorFinal` for Edge). As the call originates from a trusted process path, all of the server's security checks are passed.
+3.  **Target-Context COM Hijack:** Now running natively within the browser process, the payload instantiates the browser's internal COM server (`IElevator2` for Chrome/Brave 144+, `IElevator` for earlier versions, `IEdgeElevatorFinal` for Edge, or `IAvastElevator` for Avast Secure Browser). As the call originates from a trusted process path, all of the server's security checks are passed.
 4.  **Master Key Decryption:** The payload calls the `DecryptData` method on the COM interface, providing the `app_bound_encrypted_key` it reads from the `Local State` file. The COM server dutifully decrypts the key and returns the plaintext AES-256 master key to the payload.
 5.  **Data Exfiltration:** Armed with the AES key, the payload enumerates all user profiles (`Default`, `Profile 1`, etc.). For each profile, it queries the relevant SQLite databases (`Cookies`, `Login Data`, `Web Data`), decrypts the data blobs using AES-256-GCM, and formats the secrets as JSON. The results are written directly to the output directory specified by the injector.
 6.  **Shutdown:** After processing all profiles, the payload sends a completion signal to the injector over the pipe and calls `FreeLibraryAndExitThread` to clean up. The injector, upon receiving the signal, terminates the parent host process with `NtTerminateProcess`.
 
 ## 🔧 Build Instructions
 
-This project uses a simple, robust build script that handles all compilation and resource embedding automatically.
+This project uses a simple, robust build script that handles all compilation and payload embedding automatically.
 
 1. **Clone** this repository.
 
@@ -152,9 +153,9 @@ _________ .__                         ___________.__                       __
  \______  /___|  /__|   \____/|__|_|  /_______  /|____/\___  >\_/  (____  /__|  \____/|__|
         \/     \/                   \/        \/           \/           \/
  Direct Syscall-Based Reflective Hollowing
- x64 & ARM64 | v0.18.1 by @xaitax
+ x64 & ARM64 | v0.20.0 by @xaitax
 
-  Usage: chromelevator.exe [options] <chrome|chrome-beta|edge|brave|all>
+  Usage: chromelevator.exe [options] <chrome|chrome-beta|edge|brave|avast|all>
 
   Options:
     -v, --verbose      Show detailed output
@@ -195,7 +196,7 @@ _________ .__                         ___________.__                       __
  \______  /___|  /__|   \____/|__|_|  /_______  /|____/\___  >\_/  (____  /__|  \____/|__|
         \/     \/                   \/        \/           \/           \/
  Direct Syscall-Based Reflective Hollowing
- x64 & ARM64 | v0.18.1 by @xaitax
+ x64 & ARM64 | v0.20.0 by @xaitax
 
   ┌──── Brave (143.1.85.120) ──────────────────────
   │
@@ -270,7 +271,7 @@ _________ .__                         ___________.__                       __
  \______  /___|  /__|   \____/|__|_|  /_______  /|____/\___  >\_/  (____  /__|  \____/|__|
         \/     \/                   \/        \/           \/           \/
  Direct Syscall-Based Reflective Hollowing
- x64 & ARM64 | v0.18.1 by @xaitax
+ x64 & ARM64 | v0.20.0 by @xaitax
 
   ┌──── Chrome (143.0.7499.193) ───────────────────
   │ Creating suspended process: C:\Program Files\Google\Chrome\Application\chrome.exe

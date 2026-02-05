@@ -19,12 +19,32 @@ namespace Com {
     };
 
     // Interface definitions
+    // Chrome/Brave IElevator interface (3 methods)
     MIDL_INTERFACE("A949CB4E-C4F9-44C4-B213-6BF8AA9AC69C")
     IOriginalBaseElevator : public IUnknown {
     public:
         virtual HRESULT STDMETHODCALLTYPE RunRecoveryCRXElevated(const WCHAR*, const WCHAR*, const WCHAR*, const WCHAR*, DWORD, ULONG_PTR*) = 0;
         virtual HRESULT STDMETHODCALLTYPE EncryptData(ProtectionLevel, const BSTR, BSTR*, DWORD*) = 0;
         virtual HRESULT STDMETHODCALLTYPE DecryptData(const BSTR, BSTR*, DWORD*) = 0;
+    };
+
+    // Avast's IElevatorChrome interface (12 methods - same vtable as base IElevator but properly registered)
+    // Avast added 9 methods between RunRecoveryCRXElevated and EncryptData
+    MIDL_INTERFACE("7737BB9F-BAC1-4C71-A696-7C82D7994B6F")
+    IAvastElevator : public IUnknown {
+    public:
+        virtual HRESULT STDMETHODCALLTYPE RunRecoveryCRXElevated(const WCHAR*, const WCHAR*, const WCHAR*, const WCHAR*, DWORD, ULONG_PTR*) = 0;
+        virtual HRESULT STDMETHODCALLTYPE UpdateSearchProviderElevated(const WCHAR*) = 0;
+        virtual HRESULT STDMETHODCALLTYPE CleanupMigrateStateElevated(void) = 0;
+        virtual HRESULT STDMETHODCALLTYPE UpdateInstallerLangElevated(const WCHAR*) = 0;
+        virtual HRESULT STDMETHODCALLTYPE UpdateBrandValueElevated(const WCHAR*) = 0;
+        virtual HRESULT STDMETHODCALLTYPE MigrateUninstallKeyElevated(const WCHAR*) = 0;
+        virtual HRESULT STDMETHODCALLTYPE UpdateEndpointIdElevated(const char*) = 0;
+        virtual HRESULT STDMETHODCALLTYPE UpdateFingerprintIdElevated(const char*) = 0;
+        virtual HRESULT STDMETHODCALLTYPE RunMicroMVDifferentialUpdate(void) = 0;
+        virtual HRESULT STDMETHODCALLTYPE EncryptData(ProtectionLevel, const BSTR, BSTR*, DWORD*) = 0;
+        virtual HRESULT STDMETHODCALLTYPE DecryptData(const BSTR, BSTR*, DWORD*) = 0;
+        virtual HRESULT STDMETHODCALLTYPE DecryptData2(const BSTR, BSTR*, DWORD*) = 0;
     };
 
     MIDL_INTERFACE("E12B779C-CDB8-4F19-95A0-9CA19B31A8F6")
@@ -67,7 +87,8 @@ namespace Com {
             const CLSID& clsid,
             const IID& iid,
             const std::optional<IID>& iid_v2,
-            bool isEdge);
+            bool isEdge,
+            bool isAvast = false);
 
         // Decrypt using specific Edge IID (for testing Copilot vs Edge)
         std::vector<uint8_t> DecryptKeyEdgeIID(

@@ -15,7 +15,8 @@ namespace Injector {
             {L"chrome", {L"chrome.exe", "Chrome"}},
             {L"chrome-beta", {L"chrome.exe", "Chrome Beta"}},
             {L"edge", {L"msedge.exe", "Edge"}},
-            {L"brave", {L"brave.exe", "Brave"}}
+            {L"brave", {L"brave.exe", "Brave"}},
+            {L"avast", {L"AvastBrowser.exe", "Avast"}}
         };
     }
 
@@ -96,6 +97,12 @@ namespace Injector {
                 {L"\\Registry\\Machine\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\BraveSoftware Brave-Browser", L"InstallLocation"},
                 {L"\\Registry\\Machine\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\BraveSoftware Brave-Browser", L"InstallLocation"},
                 {L"\\Registry\\Machine\\SOFTWARE\\Clients\\StartMenuInternet\\Brave\\shell\\open\\command", L""}
+            };
+        } else if (browserType == L"avast") {
+            altRegistry = {
+                {L"\\Registry\\Machine\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Avast Secure Browser", L"InstallLocation"},
+                {L"\\Registry\\Machine\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Avast Secure Browser", L"InstallLocation"},
+                {L"\\Registry\\Machine\\SOFTWARE\\Clients\\StartMenuInternet\\Avast Secure Browser\\shell\\open\\command", L""}
             };
         }
 

